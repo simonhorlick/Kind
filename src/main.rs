@@ -5,7 +5,7 @@ pub mod term;
 
 fn main() -> Result<(), &'static str> {
     let term = term::from_string(b"
-        /bool
+        /Bool
             @P *
             @t P
             @f P
@@ -23,18 +23,24 @@ fn main() -> Result<(), &'static str> {
             #F P
             T
 
-        /not
-            #a bool
-            :::a bool fal tru
+        /B
+            #b Bool
+            @P @b Bool *
+            @M @b Bool :P b
+            :P b
 
-        /nat
+        /not
+            #a Bool
+            :::a Bool fal tru
+
+        /Nat
             @P *
             @s @ P P
             @z P
             P
 
         /suc
-            #n nat
+            #n Nat
             #P *
             #s @ P P
             #z P
@@ -46,17 +52,38 @@ fn main() -> Result<(), &'static str> {
             #z P
             z
 
-        :suc :suc zer
+        /MkB
+            #b Bool
+            #P @b Bool *
+            #M @b Bool :P b
+            :M b
+
+        /fst
+            #A * 
+            #B @ A *
+            #s $a A :B a
+            %s A x y x
+
+        /snd
+            #A *
+            #B @ A *
+            #s $a A :B a
+            %s :B :::fst A B s x y y
+
+        /pair
+            & $n Bool :B n tru :MkB tru
+
+        :::snd Bool B pair
+        
+        same as :MkB tru
     ");
+
     println!("term : {}", term);
     println!("norm : {}", term::reduce(&term));
-    println!("type : {}", term::infer(&term)?);
+    match term::infer(&term) {
+        Ok(t) => println!("type : {}", t),
+        Err(e) => println!("type : {}", e)
+    };
+
     Ok(())
-    //let inp     = absal::term::from_string(b"@ #x #y x #k k");
-    //let mut net = absal::term::to_net(&inp);
-    //let stt     = absal::net::reduce(&mut net);
-    //let out     = absal::term::from_net(&net);
-    //println!("nn  : {}", inp);
-    //println!("out : {}", out);
-    //println!("stt : {:?}", stt);
 }
