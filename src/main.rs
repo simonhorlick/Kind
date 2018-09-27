@@ -1,27 +1,80 @@
-extern crate absal;
-
 pub mod term;
 
-
 fn main() -> Result<(), &'static str> {
-    let term = term::from_string(b"
+    let mut term = term::from_string(b"
         /Bool
             @P *
             @t P
             @f P
             P
 
-        /fal
+        /false
             #P *
             #T P
             #F P
             F
 
-        /tru
+        /true
             #P *
             #T P
             #F P
             T
+
+        /not
+            #a Bool
+            #P *
+            #T P
+            #F P
+            :::a P F T
+
+        /Pair
+            #A *
+            #B @ A *
+            @P *
+            @t @a A @b :B a P
+            P
+
+        /pair
+            #A *
+            #B @ A *
+            #a A 
+            #b :B a
+            #P *
+            #t @a A @b :B a P
+            ::t a b
+
+        /fst
+            #A *
+            #B @ A *
+            #t ::Pair A B
+            ::t A #a A #b :B a a
+
+        #F @ * F :F *
+
+        /snd
+            #A *
+            #B @ A *
+            #t ::Pair A B
+            ::t :B a #a A #b :B a b
+
+        snd
+
+        @a *
+        @b @c b *
+        @c  @d *
+            @e @f b @g :c f d
+            d
+        @d @e a
+           @f :b e
+           a
+        a
+
+        Bool
+        :not :not :not true
+
+        :   #s * #z * :s :s :s :s :s z
+            #s * #z * :s :s :s :s :s z
+            
 
         /B
             #b Bool
@@ -73,17 +126,25 @@ fn main() -> Result<(), &'static str> {
         /pair
             & $n Bool :B n tru :MkB tru
 
-        :::snd Bool B pair
+        /S #n * #s * #z * :s n
+        /Z      #s * #z * z
+        /I ~I #n * ::n #n * :S :I n Z
+        /A ~A #n * ::n
+            #n * #m * ::A :S n m
+            #m * m
         
-        same as :MkB tru
+        :I Z
+
     ");
+    //same as :MkB tru
 
     println!("term : {}", term);
-    println!("norm : {}", term::reduce(&term));
+    term::reduce(&mut term);
     match term::infer(&term) {
-        Ok(t) => println!("type : {}", t),
-        Err(e) => println!("type : {}", e)
+        Ok(typ) => println!("type : {}", typ),
+        Err(err) => println!("type : {}", err)
     };
+    println!("norm : {}", term);
 
     Ok(())
 }

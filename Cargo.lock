@@ -1,14 +1,14 @@
 [[package]]
-name = "abstract-calculus"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
 name = "formality"
 version = "0.1.0"
 dependencies = [
- "abstract-calculus 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "symmetric-interaction-calculus 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
+[[package]]
+name = "symmetric-interaction-calculus"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
 [metadata]
-"checksum abstract-calculus 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "71e54b0c7f0fa84bff734a297d65f2a10b35d225e1bc3ece69d6a36f77d00e67"
+"checksum symmetric-interaction-calculus 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "3745b7a5e2f0a4791c15e2c70e8bc4a122ff4786d60863558293c71540e7df36"

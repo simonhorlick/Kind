@@ -4,4 +4,4 @@ version = "0.1.0"
 authors = ["maiavictor <srvictormaia@gmail.com>"]
 
 [dependencies]
-abstract-calculus = "0.1.1"
+symmetric-interaction-calculus = "0.1.2"
