@@ -1,35 +1,52 @@
 use std;
+use std::collections::HashMap;
 //use absal::net::*;
-
-// Source code is Ascii-encoded.
-pub type Str = [u8];
-pub type Chr = u8;
 
 #[derive(Clone, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
 pub enum Term {
-    // Function
-    All {nam: Vec<u8>, typ: Box<Term>, bod: Box<Term>},
-    Lam {nam: Vec<u8>, typ: Box<Term>, bod: Box<Term>},
-    Var {idx: i32},
-    App {fun: Box<Term>, arg: Box<Term>},
-    Ref {nam: Vec<u8>},
+    Typ,
+    Kin,
+    Var {nam: Vec<u8>},
+    For {
+    Abs {
+    Ins {
+    Arr {era: Bool, nam: Vec<u8>, typ: Box<Term>, bod: Box<Term>},
+    Lam {era: Bool, nam: Vec<u8>, typ: Box<Term>, bod: Box<Term>},
+    App {era: Bool, fun: Box<Term>, arg: Box<Term>},
+    Dep {nam: Vec<u8>, fst: Box<Term>, snd: Box<Term>},
+    Sam {
+    Fst {
+    Snd {
+    Eql {
+    Rfl {
+    Sym {
+    Cst {
+    Rwt {
 
-    // Duplication
-    //Dup {nam: Vec<u8>, val: Box<Term>, bod: Box<Term>},
-    //Bxv {val: Box<Term>}, 
-    //Bxt {val: Box<Term>},
+    lam x 
+    app
+    dep
+    sam 
+    fst
+    snd
+    eql
+    rfl
+    sym
+    rwt
 
     // Type
     Set
 }
 
+pub type Env = HashMap<Vec<u8>, Term>;
+
 use self::Term::{*};
 
 // A Scope is a vector of (name, value) assignments.
-type Scope<'a> = Vec<(&'a Str, Option<Term>)>;
+type Scope<'a> = Vec<(&'a [u8], Option<Term>)>;
 
 // Extends a scope with a (name, value) assignments.
-fn extend_scope<'a,'b>(nam : &'a Str, val : Option<Term>, ctx : &'b mut Scope<'a>) -> &'b mut Scope<'a> {
+fn extend_scope<'a,'b>(nam : &'a [u8], val : Option<Term>, ctx : &'b mut Scope<'a>) -> &'b mut Scope<'a> {
     ctx.push((nam,val));
     ctx
 }
@@ -41,7 +58,7 @@ fn narrow_scope<'a,'b>(ctx : &'b mut Scope<'a>) -> &'b mut Scope<'a> {
 }
 
 // Parses a name, returns the remaining code and the name.
-fn parse_name(code : &Str) -> (&Str, &Str) {
+fn parse_name(code : &[u8]) -> (&[u8], &[u8]) {
     let mut i : usize = 0;
     while i < code.len() && !(code[i] == b' ' || code[i] == b'\n') {
         i += 1;
@@ -50,7 +67,7 @@ fn parse_name(code : &Str) -> (&Str, &Str) {
 }
 
 // Parses a term, returning the remaining code and the term.
-pub fn parse_term<'a>(code : &'a Str, ctx : &mut Scope<'a>) -> (&'a Str, Term) {
+pub fn parse_term<'a>(code : &'a [u8], ctx : &mut Scope<'a>) -> (&'a [u8], Term) {
     match code[0] {
         // Whitespace
         b' ' => parse_term(&code[1..], ctx),
@@ -96,17 +113,15 @@ pub fn parse_term<'a>(code : &'a Str, ctx : &mut Scope<'a>) -> (&'a Str, Term) {
             let bod = Box::new(bod);
             (code, All{nam,typ,bod})
         },
-        // Dup
+        // Let
         //b'=' => {
             //let (code, nam) = parse_name(&code[1..]);
-            //let (code, val) = parse_term(code, extend_scope(nam, None, ctx), false);
-            //narrow_scope(ctx);
-            //let (code, bod) = parse_term(code, extend_scope(nam, None, ctx), false);
-            //narrow_scope(ctx);
+            //let (code, val) = parse_term(code, ctx);
+            //let (code, bod) = parse_term(code, ctx);
             //let nam = nam.to_vec();
             //let val = Box::new(val);
             //let bod = Box::new(bod);
-            //(code, Dup{nam,val,bod})
+            //(code, Let{nam,val,bod})
         //},
         // Bxv
         //b'|' => {
@@ -147,22 +162,42 @@ pub fn parse_term<'a>(code : &'a Str, ctx : &mut Scope<'a>) -> (&'a Str, Term) {
     }
 }
 
+pub fn parse_env<'a>(code : &'a [u8], defs : &mut Env) -> &'a [u8] {
+    if code.len() < 1 {
+        code
+    } else {
+        match code[0] {
+            // Whitespace
+            b' ' => parse_env(&code[1..], defs),
+            // Newline
+            b'\n' => parse_env(&code[1..], defs),
+            // Definition
+            b'=' => {
+                let (code, nam) = parse_name(&code[1..]);
+                let (code, val) = parse_term(code, &mut Vec::new());
+                defs.insert(nam.to_vec(), val);
+                parse_env(code, defs)
+            }
+            _ => code
+        }
+    }
+}
 
-//λx. let A,B = λa. a x
-    //in  [A,B]
-//λs. λz. s (s z)
-
-
+pub fn build<'a>(code : &'a [u8]) -> Env {
+    let mut defs = HashMap::new();
+    parse_env(code, &mut defs);
+    defs
+}
 
 // Converts a source-code to a λ-term.
-pub fn from_string<'a>(code : &'a Str) -> Term {
+pub fn from_string<'a>(code : &'a [u8]) -> Term {
     let mut ctx = Vec::new();
     let (_code, term) = parse_term(code, &mut ctx);
     term
 }
 
 // Builds a var name from an index (0="a", 1="b", 26="aa"...).
-pub fn var_name(idx : i32) -> Vec<Chr> {
+pub fn var_name(idx : i32) -> Vec<u8> {
     let mut name = Vec::new();
     let mut idx  = idx;
     if idx < 0 {
@@ -181,7 +216,7 @@ pub fn var_name(idx : i32) -> Vec<Chr> {
 }
 
 // Converts a λ-term back to a source-code.
-pub fn to_string(term : &Term, dph : i32) -> Vec<Chr> {
+pub fn to_string(term : &Term, dph : i32) -> Vec<u8> {
     fn build(code : &mut Vec<u8>, term : &Term, dph : i32) {
         match term {
             &App{ref fun, ref arg} => {
@@ -212,13 +247,13 @@ pub fn to_string(term : &Term, dph : i32) -> Vec<Chr> {
             &Ref{ref nam} => {
                 code.append(&mut nam.clone());
             },
-            //&Dup{nam: ref _nam, ref val, ref bod} => {
+            //&Let{ref nam, ref val, ref bod} => {
                 //code.extend_from_slice(b"=");
-                //code.append(&mut var_name(dph + 1));
+                //code.append(&mut nam.clone());
                 //code.extend_from_slice(b" ");
-                //build(code, &val, dph + 1);
+                //build(code, &val, dph);
                 //code.extend_from_slice(b" ");
-                //build(code, &bod, dph + 1);
+                //build(code, &bod, dph);
             //},
             //&Bxv{ref val} => {
                 //code.extend_from_slice(b"|");
@@ -262,9 +297,9 @@ pub fn shift(proof : &mut Term, d : i32, c : i32) {
         &mut Var{ref mut idx} => {
             *idx = if *idx < c { *idx } else { *idx + d };
         },
-        //&mut Dup{nam: ref mut _nam, ref mut val, ref mut bod} => {
-            //shift(val, d, c+1);
-            //shift(bod, d, c+1);
+        //&mut Let{nam: ref mut _nam, ref mut val, ref mut bod} => {
+            //shift(val, d, c);
+            //shift(bod, d, c);
         //},
         &mut Ref{nam: ref mut _nam} => {},
         //&mut Bxv{ref mut val} => {
@@ -294,8 +329,8 @@ pub fn equals(a : &Term, b : &Term) -> bool {
         (&Ref{nam: ref ax},
          &Ref{nam: ref bx})
          => ax == bx,
-        //(&Dup{nam: ref _ax, val: ref ay, bod: ref az},
-         //&Dup{nam: ref _bx, val: ref by, bod: ref bz})
+        //(&Let{nam: ref _ax, val: ref ay, bod: ref az},
+         //&Let{nam: ref _bx, val: ref by, bod: ref bz})
          //=> equals(ay, by) && equals(az, bz),
         //(&Bxv{val: ref ax}, &Bxv{val: ref bx})
          //=> equals(ax, bx),
@@ -340,37 +375,64 @@ pub fn subs(term : &mut Term, value : &Term, dph : i32) {
     };
 }
 
-pub fn reduce(term : &mut Term) {
+pub fn reduce_step(term : &mut Term, defs : &HashMap<Vec<u8>, Term>, changed : &mut bool) {
     let tmp_term = std::mem::replace(term, Set);
     let new_term : Term;
     match tmp_term {
         App{mut fun, mut arg} => {
-            reduce(&mut fun);
-            reduce(&mut arg);
+            reduce_step(&mut fun, defs, changed);
+            reduce_step(&mut arg, defs, changed);
             let tmp_fun : Term = *fun;
             match tmp_fun {
                 Lam{nam: _, typ: _, mut bod} => {
                     subs(&mut bod, &arg, 0);
-                    reduce(&mut bod);
+                    *changed = true;
                     new_term = *bod;
                 },
-                t => new_term = App{fun: Box::new(t), arg},
+                Ref{nam} => {
+                    match defs.get(&nam) {
+                        Some(val) => {
+                            new_term = App{fun: Box::new(val.clone()), arg};
+                            *changed = true;
+                        },
+                        None => new_term = Ref{nam}
+                    }
+                },
+                t => {
+                    new_term = App{fun: Box::new(t), arg};
+                }
             }
         },
         Lam{nam, mut typ, mut bod} => {
-            reduce(&mut typ);
-            reduce(&mut bod);
+            reduce_step(&mut typ, defs, changed);
+            reduce_step(&mut bod, defs, changed);
             new_term = Lam{nam, typ, bod};
         },
         All{nam, mut typ, mut bod} => {
-            reduce(&mut typ);
-            reduce(&mut bod);
+            reduce_step(&mut typ, defs, changed);
+            reduce_step(&mut bod, defs, changed);
             new_term = All{nam, typ, bod};
         },
+        //Let{nam, val, mut bod} => {
+            //reduce_step(&mut bod, &defs.update(nam.clone(), val.clone()), changed);
+            //new_term = Let{nam, val, bod};
+        //},
         t => new_term = t
     }
     std::mem::replace(term, new_term);
 }
+
+pub fn reduce(term : &mut Term, defs : &HashMap<Vec<u8>, Term>) {
+    let mut changed = true;
+    let mut count = 0;
+    while changed && count < 64 {
+        count += 1;
+        println!("{}", term);
+        changed = false;
+        reduce_step(term, defs, &mut changed);
+    }
+}
+
 
 // A Context is a vector of (name, value) assignments.
 type Context<'a> = Vec<Box<Term>>;
@@ -394,16 +456,16 @@ fn narrow_context<'a>(ctx : &'a mut Context<'a>) -> &'a mut Context<'a> {
 }
 
 // TODO: return Result
-pub fn infer(term : &Term) -> Result<Term, std::string::String> {
-    pub fn infer<'a>(term : &Term, ctx : &mut Context) -> Result<Term, std::string::String> {
+pub fn infer(term : &Term, defs : &HashMap<Vec<u8>, Term>) -> Result<Term, std::string::String> {
+    pub fn infer<'a>(term : &Term, ctx : &mut Context, defs : &HashMap<Vec<u8>, Term>) -> Result<Term, std::string::String> {
         match term {
             App{fun, arg} => {
-                let fun_t = infer(fun, ctx)?;
-                let arg_t = infer(arg, ctx)?;
+                let fun_t = infer(fun, ctx, defs)?;
+                let arg_t = infer(arg, ctx, defs)?;
                 match fun_t {
                     All{nam: _f_nam, typ: f_typ, bod: f_bod} => {
                         let mut arg_n = arg.clone();
-                        reduce(&mut arg_n);
+                        reduce(&mut arg_n, defs);
                         let mut new_typ = f_typ.clone();
                         subs(&mut new_typ, &arg_n, 0);
                         if !equals(&new_typ, &arg_t) {
@@ -411,7 +473,7 @@ pub fn infer(term : &Term) -> Result<Term, std::string::String> {
                         }
                         let mut new_bod = f_bod.clone();
                         subs(&mut new_bod, &arg_n, 0);
-                        reduce(&mut new_bod);
+                        reduce(&mut new_bod, defs);
                         Ok(*new_bod)
                     },
                     _ => {
@@ -421,18 +483,18 @@ pub fn infer(term : &Term) -> Result<Term, std::string::String> {
             },
             Lam{nam, typ, bod} => {
                 let mut typ_n = typ.clone();
-                reduce(&mut typ_n);
+                reduce(&mut typ_n, defs);
                 extend_context(typ_n.clone(), ctx);
-                let bod_t = Box::new(infer(bod, ctx)?);
+                let bod_t = Box::new(infer(bod, ctx, defs)?);
                 narrow_context(ctx);
                 Ok(All{nam: nam.clone(), typ: typ_n, bod: bod_t})
             },
             All{nam: _, typ, bod} => {
                 let mut typ_n = typ.clone();
-                reduce(&mut typ_n);
+                reduce(&mut typ_n, defs);
                 extend_context(typ_n, ctx);
-                let typ_t = Box::new(infer(typ, ctx)?);
-                let bod_t = Box::new(infer(bod, ctx)?);
+                let typ_t = Box::new(infer(typ, ctx, defs)?);
+                let bod_t = Box::new(infer(bod, ctx, defs)?);
                 narrow_context(ctx);
                 if equals(&typ_t, &bod_t) {
                     Ok(Set)
@@ -448,11 +510,14 @@ pub fn infer(term : &Term) -> Result<Term, std::string::String> {
             },
             Set => {
                 Ok(Set)
-            }
+            },
+            //Let{nam:_, val:_, bod:_} => {
+                //panic!("todo")
+            //}
         }
     }
     let mut ctx : Vec<Box<Term>> = Vec::new();
-    infer(term, &mut ctx)
+    infer(term, &mut ctx, defs)
 }
 
 
