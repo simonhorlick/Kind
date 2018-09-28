@@ -42,13 +42,13 @@ fn main() -> Result<(), std::string::String> {
         =O    #xs * #P * #O @ * P #I @ * P #E P :O xs
         =I    #xs * #P * #O @ * P #I @ * P #E P :I xs
         =E    #P * #O @ * P #I @ * P #E P E
-        =list :I :O main
+        =list :I :O list
         =tail #xs * ::::xs * #xs * xs #xs * xs E
         =fst  #xs * ::::xs *
             #xs * #a * #b * a
             #xs * #a * #b * b
             #x * x
-        =main :tail :tail :tail list
+        =main :fst :tail :tail :tail :tail :tail :tail :tail list
     ");
 
     println!("{}", nf(b"main", &env));

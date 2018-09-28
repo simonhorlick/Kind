@@ -4,35 +4,15 @@ use std::collections::HashMap;
 
 #[derive(Clone, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
 pub enum Term {
-    Typ,
-    Kin,
-    Var {nam: Vec<u8>},
-    For {
-    Abs {
-    Ins {
-    Arr {era: Bool, nam: Vec<u8>, typ: Box<Term>, bod: Box<Term>},
-    Lam {era: Bool, nam: Vec<u8>, typ: Box<Term>, bod: Box<Term>},
-    App {era: Bool, fun: Box<Term>, arg: Box<Term>},
-    Dep {nam: Vec<u8>, fst: Box<Term>, snd: Box<Term>},
-    Sam {
-    Fst {
-    Snd {
-    Eql {
-    Rfl {
-    Sym {
-    Cst {
-    Rwt {
-
-    lam x 
-    app
-    dep
-    sam 
-    fst
-    snd
-    eql
-    rfl
-    sym
-    rwt
+    All {nam: Vec<u8>, typ: Box<Term>, bod: Box<Term>},
+    Lam {nam: Vec<u8>, typ: Box<Term>, bod: Box<Term>},
+    Var {idx: i32},
+    App {fun: Box<Term>, arg: Box<Term>},
+    Ref {nam: Vec<u8>},
+    //Let {nam: Vec<u8>, val: Box<Term>, bod: Box<Term>},
+    //Let {nam: Vec<u8>, val: Box<Term>, bod: Box<Term>},
+    //Bxv {val: Box<Term>}, 
+    //Bxt {val: Box<Term>},
 
     // Type
     Set
