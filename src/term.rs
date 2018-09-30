@@ -9,6 +9,9 @@ pub enum Term {
     Var {idx: i32},
     App {fun: Box<Term>, arg: Box<Term>},
     Ref {nam: Vec<u8>},
+
+    //Dat {nam: Vec<u8>, cts: Vec<Term>},
+
     //Let {nam: Vec<u8>, val: Box<Term>, bod: Box<Term>},
     //Let {nam: Vec<u8>, val: Box<Term>, bod: Box<Term>},
     //Bxv {val: Box<Term>}, 
@@ -18,7 +21,7 @@ pub enum Term {
     Set
 }
 
-pub type Env = HashMap<Vec<u8>, Term>;
+pub type Defs = HashMap<Vec<u8>, (Term, Term)>;
 
 use self::Term::{*};
 
@@ -142,30 +145,31 @@ pub fn parse_term<'a>(code : &'a [u8], ctx : &mut Scope<'a>) -> (&'a [u8], Term)
     }
 }
 
-pub fn parse_env<'a>(code : &'a [u8], defs : &mut Env) -> &'a [u8] {
+pub fn parse_defs<'a>(code : &'a [u8], defs : &mut Defs) -> &'a [u8] {
     if code.len() < 1 {
         code
     } else {
         match code[0] {
             // Whitespace
-            b' ' => parse_env(&code[1..], defs),
+            b' ' => parse_defs(&code[1..], defs),
             // Newline
-            b'\n' => parse_env(&code[1..], defs),
+            b'\n' => parse_defs(&code[1..], defs),
             // Definition
             b'=' => {
                 let (code, nam) = parse_name(&code[1..]);
+                let (code, typ) = parse_term(code, &mut Vec::new());
                 let (code, val) = parse_term(code, &mut Vec::new());
-                defs.insert(nam.to_vec(), val);
-                parse_env(code, defs)
+                defs.insert(nam.to_vec(), (typ, val));
+                parse_defs(code, defs)
             }
             _ => code
         }
     }
 }
 
-pub fn build<'a>(code : &'a [u8]) -> Env {
+pub fn build<'a>(code : &'a [u8]) -> Defs {
     let mut defs = HashMap::new();
-    parse_env(code, &mut defs);
+    parse_defs(code, &mut defs);
     defs
 }
 
@@ -355,7 +359,7 @@ pub fn subs(term : &mut Term, value : &Term, dph : i32) {
     };
 }
 
-pub fn reduce_step(term : &mut Term, defs : &HashMap<Vec<u8>, Term>, changed : &mut bool) {
+pub fn reduce_step(term : &mut Term, defs : &Defs, changed : &mut bool) {
     let tmp_term = std::mem::replace(term, Set);
     let new_term : Term;
     match tmp_term {
@@ -372,7 +376,7 @@ pub fn reduce_step(term : &mut Term, defs : &HashMap<Vec<u8>, Term>, changed : &
                 Ref{nam} => {
                     match defs.get(&nam) {
                         Some(val) => {
-                            new_term = App{fun: Box::new(val.clone()), arg};
+                            new_term = App{fun: Box::new(val.1.clone()), arg};
                             *changed = true;
                         },
                         None => new_term = Ref{nam}
@@ -402,12 +406,11 @@ pub fn reduce_step(term : &mut Term, defs : &HashMap<Vec<u8>, Term>, changed : &
     std::mem::replace(term, new_term);
 }
 
-pub fn reduce(term : &mut Term, defs : &HashMap<Vec<u8>, Term>) {
+pub fn reduce(term : &mut Term, defs : &Defs) {
     let mut changed = true;
     let mut count = 0;
     while changed && count < 64 {
         count += 1;
-        println!("{}", term);
         changed = false;
         reduce_step(term, defs, &mut changed);
     }
@@ -436,8 +439,8 @@ fn narrow_context<'a>(ctx : &'a mut Context<'a>) -> &'a mut Context<'a> {
 }
 
 // TODO: return Result
-pub fn infer(term : &Term, defs : &HashMap<Vec<u8>, Term>) -> Result<Term, std::string::String> {
-    pub fn infer<'a>(term : &Term, ctx : &mut Context, defs : &HashMap<Vec<u8>, Term>) -> Result<Term, std::string::String> {
+pub fn infer(term : &Term, defs : &Defs) -> Result<Term, std::string::String> {
+    pub fn infer<'a>(term : &Term, ctx : &mut Context, defs : &Defs) -> Result<Term, std::string::String> {
         match term {
             App{fun, arg} => {
                 let fun_t = infer(fun, ctx, defs)?;
@@ -485,8 +488,11 @@ pub fn infer(term : &Term, defs : &HashMap<Vec<u8>, Term>) -> Result<Term, std::
             Var{idx} => {
                 Ok(*ctx[ctx.len() - (*idx as usize) - 1].clone())
             },
-            Ref{nam: _} => {
-                Err("TODO".to_string())
+            Ref{nam} => {
+                match defs.get(&nam.clone()) {
+                    Some(typ) => Ok(typ.1.clone()),
+                    None => Err("TODO".to_string())
+                }
             },
             Set => {
                 Ok(Set)
@@ -499,5 +505,3 @@ pub fn infer(term : &Term, defs : &HashMap<Vec<u8>, Term>) -> Result<Term, std::
     let mut ctx : Vec<Box<Term>> = Vec::new();
     infer(term, &mut ctx, defs)
 }
-
-
