@@ -1,10 +1,14 @@
 // An ESCoC term is an ADT represented by a JSON
+const tid = ()                       => Math.random() * Math.pow(2, 32);
 const Var = (index)                  => ["Var", {index},                  "#" + index];
 const Typ = ()                       => ["Typ", {},                       "*"];
-const All = (name, bind, body, eras) => ["All", {name, bind, body, eras}, "&" + bind[2] + body[2]];
-const Lam = (name, bind, body, eras) => ["Lam", {name, bind, body, eras}, "^" + (bind?bind[2]:"") + body[2]];
-const App = (func, argm, eras)       => ["App", {func, argm, eras},       "@" + func[2] + argm[2]];
+const All = (name, bind, body, eras) => ["All", {name, bind, body, eras}, "∀" + bind[2] + body[2]];
+const Lam = (name, bind, body, eras) => ["Lam", {name, bind, body, eras}, "λ" + (bind?bind[2]:"") + body[2]];
+const App = (func, argm, eras)       => ["App", {func, argm, eras},       "(" + func[2] + argm[2] + ")"];
 const Ref = (name, eras)             => ["Ref", {name, eras},             "{" + name + "}"];
+const Slf = (name, type, uniq)       => ["Slf", {name, type, uniq},       "@" + type[2]];
+const New = (type, term, uniq)       => ["New", {type, term, uniq},       "$" + type[2] + term[2]];
+const Use = (term)                   => ["Use", {term},                   "~" + term[2]];
 
 // A context is an array of (name, type, term) triples
 const Ctx = () => null;
@@ -75,13 +79,13 @@ const show = ([ctor, args], ctx = Ctx()) => {
     case "All":
       var eras = args.eras ? "-" : "";
       var name = args.name;
-      var bind = show(args.bind, extend(ctx, [args.name, null]));
+      var bind = show(args.bind, ctx);
       var body = show(args.body, extend(ctx, [args.name, null]));
       return "{" + eras + name + " : " + bind + "} " + body;
     case "Lam":
       var eras = args.eras ? "-" : "";
       var name = args.name;
-      var bind = args.bind && show(args.bind, extend(ctx, [name, null]));
+      var bind = args.bind && show(args.bind, ctx);
       var body = show(args.body, extend(ctx, [name, null]));
       return bind ? "[" + eras + name + " : " + bind + "] " + body : "[" + eras + name + "] " + body;
     case "App":
@@ -92,6 +96,17 @@ const show = ([ctor, args], ctx = Ctx()) => {
         term = term[1].func;
       }
       return "(" + show(term, ctx) + text;
+    case "Slf":
+      var name = args.name;
+      var type = show(args.type, extend(ctx, [name, null]));
+      return "@" + name + " " + type;
+    case "New":
+      var type = show(args.type, ctx);
+      var term = show(args.term, ctx);
+      return "$" + type + " " + term;
+    case "Use":
+      var term = show(args.term, ctx);
+      return "~" + term;
     case "Ref":
       return args.name;
   }
@@ -178,7 +193,7 @@ const parse = (code) => {
       var eras = match("-");
       var name = parse_name();
       var skip = parse_exact(":");
-      var bind = parse_term(extend(ctx, [name, Var(0)]));
+      var bind = parse_term(ctx);
       var skip = parse_exact("}");
       var body = parse_term(extend(ctx, [name, Var(0)]));
       return All(name, bind, body, eras);
@@ -188,10 +203,32 @@ const parse = (code) => {
     else if (match("[")) {
       var eras = match("-");
       var name = parse_name();
-      var bind = match(":") ? parse_term(extend(ctx, [name, Var(0)])) : null;
+      var bind = match(":") ? parse_term(ctx) : null;
       var skip = parse_exact("]");
       var body = parse_term(extend(ctx, [name, Var(0)]));
       return Lam(name, bind, body, eras);
+    }
+
+    // Self
+    else if (match("@")) {
+      var name = parse_name();
+      var type = parse_term(extend(ctx, [name, Var(0)]));
+      var uniq = Math.floor(Math.random() * Math.pow(2, 30));
+      return Slf(name, type, uniq);
+    }
+
+    // New
+    else if (match("$")) {
+      var type = parse_term(ctx);
+      var term = parse_term(ctx);
+      var uniq = Math.floor(Math.random() * Math.pow(2, 30));
+      return New(type, term, uniq);
+    }
+
+    // Use
+    else if (match("~")) {
+      var term = parse_term(ctx);
+      return Use(term);
     }
 
     // Let
@@ -260,20 +297,33 @@ const shift = ([ctor, term], inc, depth) => {
     case "All":
       var eras = term.eras;
       var name = term.name;
-      var bind = shift(term.bind, inc, depth + 1);
+      var bind = shift(term.bind, inc, depth);
       var body = shift(term.body, inc, depth + 1);
       return All(name, bind, body, eras);
     case "Lam":
       var eras = term.eras;
       var name = term.name;
-      var bind = term.bind && shift(term.bind, inc, depth + 1);
-      var body =              shift(term.body, inc, depth + 1);
+      var bind = term.bind && shift(term.bind, inc, depth);
+      var body = shift(term.body, inc, depth + 1);
       return Lam(name, bind, body, eras);
     case "App":
       var eras = term.eras;
       var func = shift(term.func, inc, depth);
       var argm = shift(term.argm, inc, depth);
       return App(func, argm, eras);
+    case "Slf":
+      var name = term.name;
+      var type = shift(term.type, inc, depth + 1);
+      var uniq = term.uniq;
+      return Slf(name, type, uniq);
+    case "New":
+      var type = shift(term.type, inc, depth);
+      var term = shift(term.term, inc, depth);
+      var uniq = term.uniq;
+      return New(type, term, uniq);
+    case "Use":
+      var term = shift(term.term, inc, depth);
+      return Use(term);
     case "Ref":
       return Ref(term.name, term.eras);
   }
@@ -289,20 +339,33 @@ const subst = ([ctor, term], val, depth) => {
     case "All":
       var eras = term.eras;
       var name = term.name;
-      var bind = subst(term.bind, val && shift(val, 1, 0), depth + 1);
+      var bind = subst(term.bind, val, depth);
       var body = subst(term.body, val && shift(val, 1, 0), depth + 1);
       return All(name, bind, body, eras);
     case "Lam":
       var eras = term.eras;
       var name = term.name;
-      var bind = term.bind && subst(term.bind, val && shift(val, 1, 0), depth + 1);
-      var body =              subst(term.body, val && shift(val, 1, 0), depth + 1);
+      var bind = term.bind && subst(term.bind, val, depth);
+      var body = subst(term.body, val && shift(val, 1, 0), depth + 1);
       return Lam(name, bind, body, eras);
     case "App":
       var eras = term.eras;
       var func = subst(term.func, val, depth);
       var argm = subst(term.argm, val, depth);
       return App(func, argm, eras);
+    case "Slf":
+      var name = term.name;
+      var type = subst(term.type, val && shift(val, 1, 0), depth + 1);
+      var uniq = term.uniq;
+      return Slf(name, type, uniq);
+    case "New":
+      var type = subst(term.type, val, depth);
+      var term = subst(term.term, val, depth);
+      var uniq = term.uniq;
+      return New(type, term, uniq);
+    case "Use":
+      var term = subst(term.term, val, depth);
+      return Use(term);
     case "Ref":
       var eras = term.eras;
       var name = term.name;
@@ -318,6 +381,9 @@ const erase = ([ctor, args]) => {
     case "All": return All(args.name, erase(args.bind), erase(args.body), args.eras);
     case "Lam": return args.eras ? subst(erase(args.body), Typ(), 0) : Lam(args.name, null, erase(args.body), args.eras);
     case "App": return args.eras ? erase(args.func) : App(erase(args.func), erase(args.argm), args.eras);
+    case "Slf": return Slf(args.name, erase(args.type), args.uniq);
+    case "New": return New(erase(args.type), erase(args.term), args.uniq);
+    case "Use": return Use(erase(args.term));
     case "Ref": return Ref(args.name, true);
   }
 }
@@ -369,6 +435,12 @@ const equals = (a, b, defs) => {
           y = Bop(false, Eql(ay[1].func, by[1].func), Eql(ay[1].argm, by[1].argm));
         } else if (ay[0] === "Var" && by[0] === "Var") {
           y = Val(ay[1].index === by[1].index);
+        } else if (ay[0] === "Slf" && by[0] === "Slf") {
+          y = Eql(ay[1].type, by[1].type);
+        } else if (ay[0] === "New" && by[0] === "New") {
+          y = Bop(false, Eql(ay[1].type, by[1].type), Eql(ay[1].term, by[1].term));
+        } else if (ay[0] === "Use" && by[0] === "Use") {
+          y = Eql(ay[1].term, by[1].term);
         } else {
           y = Val(false);
         }
@@ -425,18 +497,22 @@ const norm = ([ctor, term], defs = {}, full = true) => {
     case "All": return All(term.name, cont(term.bind, defs, false), cont(term.body, defs, full), term.eras);
     case "Lam": return Lam(term.name, term.bind && cont(term.bind, defs, false), cont(term.body, defs, full), term.eras); 
     case "App": return apply(term.eras, term.func, term.argm);
+    case "Slf": return Slf(term.name, cont(term.type, defs, full), term.uniq);
+    case "New": return New(cont(term.type, defs, full), cont(term.term, defs, full), term.uniq);
+    case "Use": return Use(cont(term.term, defs, full));
     case "Ref": return dereference(term.eras, term.name);
   }
 }
 
 // Infers the type of a term
+var done = {};
 const infer = (term, defs, ctx = Ctx()) => {
   switch (term[0]) {
     case "Typ":
       return Typ();
     case "All":
-      var ex_ctx = extend(ctx, [term[1].name, term[1].bind]);
-      var bind_t = infer(term[1].bind, defs, ex_ctx);
+      var bind_t = infer(term[1].bind, defs, ctx);
+      var ex_ctx = extend(ctx, [term[1].name, shift(term[1].bind, 1, 0)]);
       var body_t = infer(term[1].body, defs, ex_ctx);
       if (!equals(bind_t, Typ(), defs, ctx) || !equals(body_t, Typ(), defs, ctx)) {
         throw "[ERROR]\nForall not a type: `" + show(term, ctx) + "`.\n\n[CONTEXT]\n" + show_context(ctx);
@@ -446,7 +522,7 @@ const infer = (term, defs, ctx = Ctx()) => {
       if (term[1].bind === null) {
         throw "[ERROR]\nCan't infer non-annotated lambda `"+show(term,ctx)+"`.\n\n[CONTEXT]\n" + show_context(ctx);
       } else {
-        var ex_ctx = extend(ctx, [term[1].name, term[1].bind]);
+        var ex_ctx = extend(ctx, [term[1].name, shift(term[1].bind, 1, 0)]);
         var body_t = infer(term[1].body, defs, ex_ctx);
         var term_t = All(term[1].name, term[1].bind, body_t, term[1].eras);
         infer(term_t, defs, ctx);
@@ -460,8 +536,7 @@ const infer = (term, defs, ctx = Ctx()) => {
       if (func_t[1].eras !== term[1].eras) {
         throw "[ERROR]\nErasure doesn't match on application `" + show(term, ctx) + "`.\n\n[CONTEXT]\n" + show_context(ctx);
       }
-      var bind_t = subst(func_t[1].bind, term[1].argm, 0);
-      var argm_v = check(term[1].argm, bind_t, defs, ctx, () => "`" + show(term, ctx) + "`'s argument");
+      var argm_v = check(term[1].argm, func_t[1].bind, defs, ctx, () => "`" + show(term, ctx) + "`'s argument");
       return subst(func_t[1].body, argm_v, 0);
     case "Ref":
       if (defs[term[1].name]) {
@@ -480,6 +555,36 @@ const infer = (term, defs, ctx = Ctx()) => {
       } else {
         throw "[ERROR]\nUndefined reference: `" + term[1].name + "`.";
       }
+    case "Slf":
+      if (done[term[1].uniq]) {
+        return Typ();
+      } else {
+        done[term[1].uniq] = true;
+        var ex_ctx = extend(ctx, [term[1].name, shift(term, 1, 0)]);
+        var type_t = infer(term[1].type, defs, ex_ctx);
+        if (!equals(type_t, Typ(), defs, ctx)) {
+          throw "[ERROR]\nSelf not a type: `" + show(term, ctx) + "`.\n\n[CONTEXT]\n" + show_context(ctx);
+        }
+        return Typ();
+      }
+    case "New":
+      if (done[term[1].uniq]) {
+        return term[1].type;
+      } else {
+        done[term[1].uniq] = true;
+        var term_t = norm(term[1].type, defs, false);
+        if (term_t[0] !== "Slf") {
+          throw "[ERROR]\nNon-self instantiation on `" + show(term, ctx) + "`.\n\n[CONTEXT]\n" + show_context(ctx);
+        }
+        check(term[1].term, subst(term_t[1].type, term, 0), defs, ctx, () => "`" + show(term, ctx) + " instantiation");
+        return term[1].type;
+      }
+    case "Use":
+      var term_t = norm(infer(term[1].term, defs, ctx), defs, false);
+      if (term_t[0] !== "Slf") {
+        throw "[ERROR]\nUse of non-self type on `" + show(term, ctx) + "`.\n\n[CONTEXT]\n" + show_context(ctx);
+      }
+      return term_t[1].type;
     case "Var":
       return get_term(ctx, term[1].index);
   }
@@ -494,7 +599,7 @@ const check = (term, type, defs, ctx = Ctx(), expr) => {
       throw "Erasure doesn't match on " + expr() + ".";
     }
     infer(type, defs, ctx);
-    var ex_ctx = extend(ctx, [type[1].name, type[1].bind]);
+    var ex_ctx = extend(ctx, [type[1].name, shift(type[1].bind, 1, 0)]);
     var body_v = check(term[1].body, type[1].body, defs, ex_ctx, () => "`" + show(term, ctx) + "`'s body");
     return Lam(type[1].name, type[1].bind, body_v, type[1].eras);
   } else {
