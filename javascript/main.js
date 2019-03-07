@@ -42,8 +42,17 @@ try {
 
 try {
   var type = formality.infer(term, defs);
-  console.log("Type:\n" + formality.show(formality.norm(type, {}, true)));
+  console.log("Type:\n" + formality.show(formality.norm(type, {}, true)) + "\n");
 } catch (e) {
   console.log("Type:");
+  console.log(e);
+  console.log("");
+}
+
+try {
+  var logical = formality.logical(term, defs);
+  console.log("Logical:\n" + logical);
+} catch (e) {
+  console.log("Logical:");
   console.log(e);
 }

@@ -279,6 +279,42 @@ const shift = ([ctor, term], inc, depth) => {
   }
 }
 
+// How many times a variable was used in computational positions
+const uses = ([ctor, term], depth = 0) => {
+  switch (ctor) {
+    case "Var": return term.index === depth ? 1 : 0;
+    case "Typ": return 0;
+    case "All": return 0;
+    case "Lam": return uses(term.body, depth + 1);
+    case "App": return uses(term.func, depth) + (!term.eras ? uses(term.argm, depth) : 0);
+    case "Ref": return 0;
+  }
+}
+
+// Checks if term is linear and if every sub-expression is productive
+const logical = (term, defs, done = {}) => {
+  var whnf = norm(term, defs, false);
+  switch (term[0]) {
+    case "Var": return true;
+    case "Typ": return true;
+    case "All": return true;
+    case "Lam":
+      var body = logical(term[1].body, defs, done);
+      return (term[1].eras || uses(term[1].body) <= 1) && body;
+    case "App":
+      var func = logical(term[1].func, defs, done);
+      var argm = term[1].eras || logical(term[1].argm, defs, done);
+      return func && argm;
+    case "Ref":
+      if (done[term[1].name]) {
+        return true;
+      } else {
+        done[term[1].name] = true;
+        return logical(defs[term[1].name].term, defs, done);
+      }
+  }
+}
+          
 // Substitution
 const subst = ([ctor, term], val, depth) => {
   switch (ctor) {
@@ -548,4 +584,5 @@ module.exports = {
   check,
   equals,
   erase,
+  logical
 };

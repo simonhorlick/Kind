@@ -59,12 +59,12 @@ _,_ {n} ctx ty (suc l) = rename suc (ctx l)
 
 -- Beta equality
 data _~_ {n} : Term n → Term n → Set where
-  ~β     : ∀ {b f x} → app (lam b f) x ~ subst (λ v → x) f
-  ~app   : ∀ {t t' u u'} → t ~ t' → u ~ u' → app t u ~ app t' u'
-  ~lam   : ∀ {b b' t t'} → b ~ b' → t ~ t' → lam b t ~ lam b' t'
-  ~refl  : ∀ {t} → t ~ t
-  ~sym   : ∀ {t t'} → t ~ t' → t' ~ t
-  ~trans : ∀ {t t' t''} → t ~ t' → t' ~ t'' → t ~ t''
+  ~β     : ∀ b f x → app (lam b f) x ~ subst (λ v → x) f
+  ~app   : ∀ t t' u u' → t ~ t' → u ~ u' → app t u ~ app t' u'
+  ~lam   : ∀ b b' t t' → b ~ b' → t ~ t' → lam b t ~ lam b' t'
+  ~refl  : ∀ t → t ~ t
+  ~sym   : ∀ t t' → t ~ t' → t' ~ t
+  ~trans : ∀ t t' t'' → t ~ t' → t' ~ t'' → t ~ t''
 
 -- Typing relation
 data _⊢_∷_ {n} : Γ n → Term n → Term n → Set where
@@ -86,6 +86,28 @@ data _⊢_∷_ {n} : Γ n → Term n → Term n → Set where
     Γ ⊢ app func argm ∷ subst (λ x → argm) func-body
   eql-ty : ∀ {Γ a t t'} →
     Γ ⊢ a ∷ t → t ~ t' → Γ ⊢ a ∷ t'
+
+-- one-step reduction
+data _~>_ {n} : Term n → Term n → Set where
+  β    : ∀ bind body argm → app (lam bind body) argm ~> subst (λ k → argm) body
+  app₁ : ∀ func func' argm → func ~> func' → app func argm ~> app func' argm
+  app₂ : ∀ func argm argm' → argm ~> argm' → app func argm ~> app func argm'
+  lam₁ : ∀ bind bind' body → bind ~> bind' → lam bind body ~> lam bind' body
+  lam₂ : ∀ bind body body' → body ~> body' → lam bind body ~> lam bind body'
+
+-- Preservation
+
+preservation : ∀ (n : ℕ) → (Γ : Γ n) → (t : Term n) → (t' : Term n) → (T : Term n) → t ~> t' → Γ ⊢ t ∷ T → Γ ⊢ t' ∷ T
+preservation n Γ .(app (lam bind body) argm) .(subst (λ k → argm) body) T (β bind body argm) an = {!   !}
+preservation n Γ .(app func argm) .(app func' argm) T (app₁ func func' argm rx) an = {!   !}
+preservation n Γ .(app func argm) .(app func argm') T (app₂ func argm argm' rx) an = {!   !}
+preservation n Γ .(lam typ body) .(lam bind' body) T (lam₁ typ bind' body rx) an = {!   !}
+preservation n Γ .(lam (var i) body) .(lam bind' body) T (lam₁ (var i) bind' body rx) an = {!   !}
+preservation n Γ .(lam (all bind bind₁) body) .(lam bind' body) T (lam₁ (all bind bind₁) bind' body rx) an = {!   !}
+preservation n Γ .(lam (lam bind bind₁) body) .(lam bind' body) T (lam₁ (lam bind bind₁) bind' body rx) an = {!   !}
+preservation n Γ .(lam (app bind bind₁) body) .(lam bind' body) T (lam₁ (app bind bind₁) bind' body rx) an = {!   !}
+preservation n Γ .(lam bind body) .(lam bind body') T (lam₂ bind body body' rx) an = {!   !}
+
 
 -- Closed typing relation
 _∷_ : Term zero → Term zero → Set
