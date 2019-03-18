@@ -50,9 +50,8 @@ try {
 }
 
 try {
-  var logical = formality.logical(term, defs);
-  console.log("Logical:\n" + logical);
+  var stratified = formality.stratified(term, defs);
 } catch (e) {
-  console.log("Logical:");
-  console.log(e);
+  var stratified = false;
 }
+console.log("Stratified:\n" + stratified);
