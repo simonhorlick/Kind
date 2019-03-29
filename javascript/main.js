@@ -9,7 +9,7 @@ try {
   if (argv.length === 0 || argv[0] === "--help") throw "";
   var expr = argv.pop() || "main";
   var args = {};
-  var defa = "-itleTRx";
+  var defa = "-itlTRx";
   if (argv.length === 0) argv = [defa];
   argv.join("").split("").forEach(c => args[c] = 1);
   var code = "";
@@ -44,7 +44,7 @@ try {
 }
 
 var defs = fm.parse(code);
-var term = fm.parse(". main (" + expr + ")").main;
+var term = fm.parse("main = (" + expr + ")").main.term;
 
 var funcs = {
   T: ["Type:", () => console.log(fm.show(fm.norm((args.E ? fm.erase : (x => x))(fm.infer(term, defs)), args.R ? {} : defs, args.W, args.L)))],
@@ -53,7 +53,7 @@ var funcs = {
     var net = fm.compile(term, defs);
     var stats = net.reduce();
     console.log(fm.show(fm.norm((args.e ? fm.erase : (x => x))(fm.decompile(net)), args.r ? {} : defs, args.w, args.l)))
-    console.log("(" + stats.rewrites + " rewrites)");
+    //console.log("(" + stats.rewrites + " rewrites)");
   }]
 };
 
