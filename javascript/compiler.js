@@ -2,13 +2,13 @@ const {Var, App, Lam, erase, gen_name, show} = require("./formality.js");
 const {Net, Pointer, Node} = require("./nasic.js");
 
 const compile = (term, defs = {}) => {
-  const build_net = (term, net, var_ptrs, level) => {
+  const build_net = (term, net, level) => {
     const get_var = (ptr) => {
       if (!net.enter_port(ptr) || net.enter_port(ptr).equal(ptr)) {
         return ptr;
       } else {
         var dups_ptr = net.enter_port(ptr);
-        var dup_addr = net.alloc_node(Math.floor((1 + Math.random()) * Math.pow(2,16)));
+        var dup_addr = net.alloc_node(level_of[ptr.to_string()] + 1);
         net.link_ports(new Pointer(dup_addr, 0), ptr);
         net.link_ports(new Pointer(dup_addr, 1), dups_ptr);
         return new Pointer(dup_addr, 2);
@@ -16,41 +16,44 @@ const compile = (term, defs = {}) => {
     };
     switch (term[0]) {
       case "Dup":
-        var expr_ptr = build_net(term[1].expr, net, var_ptrs, level);
+        var expr_ptr = build_net(term[1].expr, net, level);
+        level_of[expr_ptr.to_string()] = level;
         var_ptrs.push(expr_ptr);
-        var body_ptr = build_net(term[1].body, net, var_ptrs, level);
+        var body_ptr = build_net(term[1].body, net, level);
         var_ptrs.pop();
         return body_ptr;
       case "Put":
-        var expr_ptr = build_net(term[1].expr, net, var_ptrs, level + 1);
+        var expr_ptr = build_net(term[1].expr, net, level + 1);
         return expr_ptr;
       case "Lam":
-        var lam_addr = net.alloc_node(1);
+        var lam_addr = net.alloc_node(0);
         net.link_ports(new Pointer(lam_addr, 1), new Pointer(lam_addr, 1));
+        level_of[new Pointer(lam_addr, 1).to_string()] = level;
         var_ptrs.push(new Pointer(lam_addr, 1));
-        var body_ptr = build_net(term[1].body, net, var_ptrs, level);
+        var body_ptr = build_net(term[1].body, net, level);
         var_ptrs.pop();
         net.link_ports(new Pointer(lam_addr, 2), body_ptr);
         return new Pointer(lam_addr, 0);
       case "App":
-        var app_addr = net.alloc_node(1);
-        var func_ptr = build_net(term[1].func, net, var_ptrs, level);
+        var app_addr = net.alloc_node(0);
+        var func_ptr = build_net(term[1].func, net, level);
         net.link_ports(new Pointer(app_addr, 0), func_ptr);
-        var argm_ptr = build_net(term[1].argm, net, var_ptrs, level);
+        var argm_ptr = build_net(term[1].argm, net, level);
         net.link_ports(new Pointer(app_addr, 1), argm_ptr)
         return new Pointer(app_addr, 2);
       case "Var":
         return get_var(var_ptrs[var_ptrs.length - term[1].index - 1]);
       case "Ref":
-        return build_net(erase(defs[term[1].name]), net, var_ptrs, level);
+        return build_net(erase(defs[term[1].name]), net, level);
       default:
-        return build_net(Lam("", null, Var(0)), net, var_ptrs, level);
+        return build_net(Lam("", null, Var(0)), net, level);
     }
   };
+  var var_ptrs = [];
   var level_of = {};
   var net = new Net();
   var root_addr = net.alloc_node(0);
-  var term_ptr = build_net(erase(term), net, [], 0);
+  var term_ptr = build_net(erase(term), net, 0);
   net.link_ports(new Pointer(root_addr, 0), new Pointer(root_addr, 2));
   net.link_ports(new Pointer(root_addr, 1), term_ptr);
   // Removes invalid redexes. They can be created by the
@@ -68,7 +71,7 @@ const compile = (term, defs = {}) => {
 const decompile = (net) => {
   const build_term = (net, ptr, var_ptrs, dup_exit) => {
     var label = net.nodes[ptr.addr].label;
-    if (label === 1) {
+    if (label === 0) {
       switch (ptr.port) {
         case 0:
           var_ptrs.push(new Pointer(ptr.addr, 1));
