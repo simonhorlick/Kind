@@ -174,6 +174,13 @@
 . 7 (succ 6)
 . 8 (succ 7)
 . 9 (succ 8)
+. 10 (succ 9)
+. 11 (succ 10)
+. 12 (succ 11)
+. 13 (succ 12)
+. 14 (succ 13)
+. 15 (succ 14)
+. 16 (succ 15)
 
 . apply
 : {n : Nat} Cat
@@ -329,7 +336,7 @@
 : {a : Cat} {b : Cat} Cat
 = [a] [b] [-P] [s]
   [S = s]
-  [A = [B = (b -P #S)] (a -P # B)]
+  [A = [B = (b -P #S)] (a -P #B)]
   # [z] (A z)
 
 . Cat.pred
@@ -340,16 +347,22 @@
   [f = (n -motive case_s)]
   # [Z] (f [f] Z [h] h)
 
-. Cat.0  Cat.zero
-. Cat.1  (Cat.succ Cat.0)
-. Cat.2  (Cat.succ Cat.1)
-. Cat.3  (Cat.succ Cat.2)
-. Cat.4  (Cat.mul Cat.2 Cat.2)
+. Cat.0 Cat.zero
+. Cat.1 (Cat.succ Cat.0)
+. Cat.2 (Cat.succ Cat.1)
+. Cat.3 (Cat.succ Cat.2)
+. Cat.4 (Cat.mul Cat.2 Cat.2)
 . Cat.8  (Cat.mul Cat.4 Cat.2)
 . Cat.16 (Cat.mul Cat.8 Cat.2)
 . Cat.32 (Cat.mul Cat.16 Cat.2)
 . Cat.64 (Cat.mul Cat.32 Cat.2)
 . Cat.128 (Cat.mul Cat.64 Cat.2)
+. Cat.256 (Cat.mul Cat.128 Cat.2)
+. Cat.512 (Cat.mul Cat.256 Cat.2)
+. Cat.1024 (Cat.mul Cat.512 Cat.2)
+. Cat.2048 (Cat.mul Cat.1024 Cat.2)
+. Cat.4096 (Cat.mul Cat.2048 Cat.2)
+. Cat.65536 (Cat.mul Cat.256 Cat.256)
 
 // ::::::::::
 // :: Bits ::
@@ -413,6 +426,25 @@
   [S = (~n -motive case_s)]
   # (S case_z)
 
+. dec.cont
+: {bs : Bits} {cont : {bs : Bits} Bits} Bits
+= [bs] [cont]
+  @Bits [-P] [o] [i] [e]
+  let motive [x] (P (dec.cont x cont))
+  let case_i o
+  let case_o [x] (i (cont x))
+  let case_e e
+  (~bs -motive case_o case_i case_e) 
+
+. dec
+: {n : Nat} ! {bs : Bits} Bits
+= [n] 
+  let motive [n] {bs : Bits} Bits
+  let case_s # [-n] [cont] [bs] (dec.cont bs cont)
+  let case_z [bs] bs
+  [S = (~n -motive case_s)]
+  # (S case_z)
+
 . cpy
   [n : Nat] 
   let motive [n] {bs : Bits} Bits
@@ -426,6 +458,24 @@
   [S = (~n -motive case_s)]
   # (S case_z)
 
+. decinc
+: {n : Nat} ! {bs : Bits}
+  (Eq !Bits
+    [d=(dec n)] [i=(inc n)] #bs
+    [d=(dec n)] [i=(inc n)] #(d (i bs)))
+= [n]
+  let motive [n] {bs : Bits} (Eq !Bits [d=(dec n)][i=(inc n)]#bs [d=(dec n)][i=(inc n)]#(d (i bs)))
+  let case_z [bs] (refl -!Bits -#bs)
+  let case_s #[-n] [h] [bs]
+    let motive_bits [bs] (Eq !Bits [d=(dec (succ n))][i=(inc (succ n))]#bs [d=(dec (succ n))][i=(inc (succ n))]#(d (i bs)))
+    let case_o [bs] (refl -!Bits -[d=(dec n)][i=(inc n)]#(o bs))
+    let case_i [bs] (cong -!Bits -!Bits -[d=(dec n)][i=(inc n)]#bs -[d=(dec n)][i=(inc n)]#(d (i bs)) (h bs) -[bs][bs=bs]#(i bs))
+    let case_e (refl -!Bits -[d=(dec n)][i=(inc n)]#e)
+    (~bs -motive_bits case_o case_i case_e)
+  [s = (~n -motive case_s)] # (s case_z)
+
+.m decinc
+
 // ::::::::::::::
 // :: Examples ::
 // ::::::::::::::
@@ -434,7 +484,8 @@
 .slow_inc_test [inc = (Cat.64 -Bits (slow_inc 8))] [cpy = (cpy 8)] # (cpy (inc (o (o (o (o (o (o (o (o e))))))))))
 
 // Fusible inc (1580 rewrites on lazy evaluator)
-.inc_test [inc = (Cat.64 -Bits (inc 8))] [cpy = (cpy 8)] # (cpy (inc (o (o (o (o (o (o (o (o e))))))))))
+//.inc_test [inc = (Cat.256 -Bits (inc 16))] [cpy = (cpy 16)] # (cpy (inc (o (o (o (o (o (o (o (o (o (o (o (o (o (o (o (o e))))))))))))))))))
+.inc_test [inc = (Cat.8 -Bits (inc 8))] # (inc (o (o (o (o (o (o (o (o e)))))))))
   
-.main   inc_test
-.stdlib inc_test
+.main   (Cat.mul Cat.8 Cat.8 -Bool slow_not true)
+.stdlib main

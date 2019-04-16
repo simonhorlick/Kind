@@ -51,7 +51,8 @@ var funcs = {
   t: ["Norm (interpreted):", () => console.log(fm.show(fm.norm((args.e ? fm.erase : (x => x))(term), args.r ? {} : defs, args.w, args.l)))],
   x: ["Norm (using NASIC):", () => {
     var net = fm.compile(term, defs);
-    var stats = net.reduce_lazy();
+    console.log(JSON.stringify(require("./extra.js").to_diffnet(net)));
+    var stats = net.reduce();
     console.log(fm.show(fm.norm((args.e ? fm.erase : (x => x))(fm.decompile(net)), args.r ? {} : defs, args.w, args.l)))
     console.log("(" + stats.rewrites + " rewrites)");
   }]
