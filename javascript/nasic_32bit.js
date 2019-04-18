@@ -47,7 +47,24 @@ var max = (nod) => Math.max(Math.abs(dst(nod,0)), Math.max(Math.abs(dst(nod,1)),
 var sho = (nod) => eql(nod, air) ? "~" : kin(nod) + "[" + dst(nod,0) + "abc"[slt(nod,0)] + "|" + dst(nod,1) + "abc"[slt(nod,1)] + "|" + dst(nod,2) + "abc"[slt(nod,2)] + "] " + "{" + pow(nod).toFixed(2) + "}";
 var str = net => net.map((k,i) => "| " + ("0000" + i).slice(-4) + " : " + sho(k)).join("\n");
 
-var alloc = (net, i, r) => {
+var alloc = (net, i = null) => {
+  if (i !== null) {
+    var k = 0;
+    do {
+      var k = k + 1;
+      var n = i + ((k % 2) * 2 - 1) * Math.floor(k / 2);
+      var a = net[n];
+    } while (k < 32 && !eql(a, air));
+    if (k === 32) {
+      console.log("could not alloc at " + i);
+      process.exit();
+    }
+    if (eql(a, air)) {
+      net[n] = 0;
+      //console.log("alloc on " + n + " (asked " + i + ")");
+      return n;
+    }
+  }
   net.push(air);
   return net.length - 1;
 };
@@ -89,10 +106,11 @@ var rewrite = (net, ai) => {
     var b2s = slt(net[bi], 2);
     link(net, a2i, a2s, b2i, b2s);
   } else {
-    var ci = alloc(net);
-    var di = alloc(net);
-    var ei = alloc(net);
-    var fi = alloc(net);
+    var ki = Math.round((ai + bi) / 2);
+    var ci = alloc(net, ki);
+    var di = alloc(net, ki);
+    var ei = alloc(net, ki);
+    var fi = alloc(net, ki);
     net[ci] = nod(kin(bn), 0,0, fi - ci, 1, ei - ci, 1); 
     net[di] = nod(kin(bn), 0,0, fi - di, 2, ei - di, 2); 
     net[ei] = nod(kin(an), 0,0, ci - ei, 2, di - ei, 2);
@@ -198,6 +216,33 @@ var shrink = (net) => {
   net.length = j - i + 1;
 };
 
+var expand = (net, ratio = 2) => {
+  var len = net.length;
+  for (var i = 0; i < len * (ratio - 1); ++i) {
+    net.push(air);
+  };
+  for (var i = 0; i < len; ++i) {
+    move(net, (len - i - 1), (len - i - 1) * ratio);
+  }
+};
+
+var collapse = (net) => {
+  for (var i = 0; i < net.length; ++i) {
+    if (eql(net[i], air)) {
+      var j = i + 1;
+      while (eql(net[j], air)) {
+        ++j;
+      }
+      if (j === net.length) {
+        net.length = i;
+        return;
+      } else {
+        move(net, i, j);
+      }
+    }
+  };
+};
+
 function plot(nums, cols) {
   return nums.map((x,i) => {
     var ryg = ["\x1b[31m", "\x1b[33m", "\x1b[32m", "\x1b[32m"];
@@ -209,17 +254,24 @@ function plot(nums, cols) {
   }).join("");
 };
 
-var print = (net, brief = false) => {
-  console.log("________");
-  console.log("| Len  : " + net.length);
-  console.log("| Chk  : " + valid(net)[0]);
-  console.log("| Tmp  : " + temperature(net).toFixed(2));
-  console.log("| Max  : " + maximum(net).toFixed(2));
-  console.log("| Rdx  : " + redexes(net).length);
-  if (!brief) {
+var print = (net, show = {nodes: 1, stats: 1, heat: 1}) => {
+  if (show.stats) {
+    console.log("________");
+    console.log("| Len  : " + net.length);
+    console.log("| Chk  : " + valid(net)[0]);
+    console.log("| Tmp  : " + temperature(net).toFixed(2));
+    console.log("| Max  : " + maximum(net).toFixed(2));
+    console.log("| Rdx  : " + redexes(net).length);
+  }
+  if (show.nodes) {
     console.log(str(net));
   }
-  console.log("________");
+  if (show.stats) {
+    console.log("________");
+  }
+  if (show.heat) {
+    console.log(draw(net.map(nod => eql(nod,air) ? 0 : 1/8 + Math.sqrt(Math.abs(pow(nod))) / 64), net.map((an,ai) => eql(net[ai],air) ? 0.5 : is_redex(net, ai) ? 1 : 0)));
+  }
 };
 
 var tree = (net, d, pi, ps) => {
@@ -266,6 +318,8 @@ var count = net => {
   return k;
 };
 
+var pad = (str, n) => ("                " + str).slice(-n);
+
 // (λf.λx.(f (f x)) λx.x)
 var ex0 = [
   nod(0,  0,1,  0,0,  1,2),
@@ -287,28 +341,78 @@ var ex6 = from_diffnet([[0,0,2,511,2,0,0],[0,1,2,424,2,510,0],[0,1,2,216,2,-1,0]
 
 var net = ex4;
 
-const pad = (str, n) => ("                " + str).slice(-n);
-
-const view = net => {
-  print(net, true);
-  console.log(draw(net.map(nod => Math.sqrt(Math.abs(pow(nod))) / 16), net.map((an,ai) => is_redex(net, ai) ? 1 : 0)));
-};
-
 // Reduces
 var num = 0;
 var rwt = 0;
 var aux = 0;
 
-view(net);
-while ((aux = reduce_pass(net)) > 0) {
-  console.log("Pass " + num + ", " + rwt + " rewrites");
-  rwt += aux;
-  num += 1;
+//var chill = (net) => {
+  //for (var ai = 0; ai < net.length; ++ai) {
+    //var an = net[ai];
+    //var ap = pow(an);
+    //var ds = Math.sign(ap) * Math.sqrt(Math.abs(ap)) / (Math.sqrt(3) * 2);
+    //var ti = Math.floor(ai + ds);
+    //if (Math.abs(ds) > 16) {
+      //for (var k = -2; k <= 2; ++k) {
+        //if (k >= 0 && k < net.length && eql(net[ti + k], air)) {
+          //move(net, ai, ti + k);
+          ////console.log("move", ai, "to", ti + k, "|", ap, ds);
+          ////print(net, {heat:1, stats:1});
+          //break;
+        //}
+      //}
+    //}
+    ////print(net, true);
+    ////if (Math.abs(ds) > 2) {
+      ////console.log(i, sho(an), ap, ds, ti);
+    ////}
+    ////if (pow(net[i]) > pow(net[i+1])) {
+      ////move(net, i, i + 1);
+    ////}
+  //}
+//};
 
-  for (var i = 0; i < 256; ++i) {
-    chill(net, i % 2);
-  }
-  shrink(net);
 
-  view(net);
+//expand(net);
+print(net, {nodes:0, heat: 1, stats: 1});
+for (var i = 0; i < net.length; ++i) {
+  chill(net, 0);
+  chill(net, 1);
 }
+print(net, {nodes:0, heat: 1, stats: 1});
+
+for (var i = 0; i < 32; ++i) {
+  expand(net);
+  reduce_pass(net);
+  collapse(net);
+  print(net, {nodes:0, heat: 1, stats: 1});
+}
+
+//chill(net);
+//print(net, {nodes:0, heat: 1, stats: 1});
+//chill(net);
+//print(net, {nodes:0, heat: 1, stats: 1});
+//chill(net);
+//print(net, {nodes:0, heat: 1, stats: 1});
+
+//expand(net, 1);
+//print(net, true);
+
+//for (var i = 0; i < 256; ++i) {
+  //chill(net, i % 2);
+//}
+
+
+
+//while ((aux = reduce_pass(net)) > 0) {
+  //console.log("Pass " + num + ", " + rwt + " rewrites");
+  //rwt += aux;
+  //num += 1;
+
+  //for (var i = 0; i < 256; ++i) {
+    //chill(net, i % 2);
+  //}
+  //shrink(net);
+
+  //view(net);
+//}

@@ -476,6 +476,43 @@
 
 .m decinc
 
+. NAT
+: Type
+= $self
+  {-P : {:NAT} Type}
+  {s : !{-n : NAT} {h : (P n)} (P (SUCC n))}
+  {z : !(P ZERO)}
+  !(P self)
+
+. SUCC
+: {n : NAT} NAT
+= [n]
+  @NAT [-P] [s] [s = s] [z] [z = z] [A = (~n -P #s #z)] #(s -n A)
+
+. ZERO
+: NAT
+= @NAT [-P] [s] [s = s] [z] [z = z] #z
+
+. ADD : {:NAT} {:NAT} NAT
+= [a] [b]
+  @NAT [-P] [s] [s = s] [z] [z = z]
+  [Z = (~b -[b](P (ADD ZERO b)) #[-n] [h] (s -(ADD ZERO n) h) #z)]
+  (~a -[a](P (ADD a b)) #[-n] [h] (s -(ADD n b) h) #Z)
+
+. MUL : {:NAT} {:NAT} NAT
+= [a] [b]
+  @NAT [-P] [s] [s = s] [z] [z = z]
+  let motive [a] (P (MUL a b))
+  let case_s [-n:NAT] #(~b -[x](P (ADD x (MUL n b))) #[-m] [h] (s -(ADD m (MUL n b)) h))
+  (~a -motive case_s z)
+
+. DOUBLE
+: {n : NAT} NAT
+= [n] @NAT [-P] [s] [s = s] [z]
+  let motive [n] (P (DOUBLE n))
+  let case_s #[-n] [h] (s -(SUCC (DOUBLE n)) (s -(DOUBLE n) h))
+  (~n -motive case_s z)
+
 // ::::::::::::::
 // :: Examples ::
 // ::::::::::::::
@@ -486,6 +523,37 @@
 // Fusible inc (1580 rewrites on lazy evaluator)
 //.inc_test [inc = (Cat.256 -Bits (inc 16))] [cpy = (cpy 16)] # (cpy (inc (o (o (o (o (o (o (o (o (o (o (o (o (o (o (o (o e))))))))))))))))))
 .inc_test [inc = (Cat.8 -Bits (inc 8))] # (inc (o (o (o (o (o (o (o (o e)))))))))
-  
-.main   (Cat.mul Cat.8 Cat.8 -Bool slow_not true)
+
+. bitconcat
+: {n : Nat} !{as : Bits} {bs : Bits} Bits
+= [n]
+  let motive [n] {as : Bits} {bs : Bits} Bits
+  let case_s # [-n] [cont] [as]
+    let motive [as] {cont : {as : Bits} {bs : Bits} Bits} {bs : Bits} Bits
+    let case_o [as] [cont] [bs] (o (cont as bs)) 
+    let case_i [as] [cont] [bs] (i (cont as bs))
+    let case_e [cont] [bs] bs
+    (~as -motive case_o case_i case_e cont)
+  let case_z [as] [bs] bs
+  [S = (~n -motive case_s)] # (S case_z)
+
+.main   bitconcat
 .stdlib main
+  
+//.main (MUL (SUCC (SUCC ZERO)) (SUCC (SUCC ZERO)))
+//.main [s] [s = s] [z] [s = #[z] [A = z] #(s (s A))] [A = z] #(s (s A))
+
+//.two [s] [s = s] [z] [z = z] #(s (s z))
+//.mul [a] [b] [s] [s = s] [z] [z = z] (a #(b #[h] (s h)) z)
+//.main (ADD (SUCC (SUCC ZERO)) (SUCC (SUCC ZERO)))
+
+//.zero [s] [s = s] [z] [z = z] #z
+//.succ [n] [s] [s = s] [z] [z = z] [A = (n #s #z)] #(s A)
+//.add  [a] [b] [s] [s = s] [z] [z = z] [Z = (b #[h] (s h) #z)] (a #[h] (s h) #Z)
+//.mul  [a] [b] [s] [s = s] (a (b [h] (s h)))
+//.0    zero
+//.1    (succ 0)
+//.2    (succ 1)
+//.main (mul 2 2)
+//.main   (Cat.mul Cat.2 Cat.2)
+//.stdlib main
