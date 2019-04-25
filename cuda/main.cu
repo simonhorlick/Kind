@@ -343,6 +343,52 @@ void shrink(u64 *src, u64 *dst, u64 *mov) {
   }
 }
 
+// Reduces a slice of 2048 nodes as much as possible on shared memory in parallel.
+__global__
+void reduce_slice(u64 *global_mem) {
+  __shared__ u64 shared_mem[2048];
+  u64 thread_mem[4];
+  u64 ti = threadIdx.x;
+  u64 gi = blockIdx.x * blockDim.x + ti;
+
+  // Loads a slice of 2048 nodes (16kb) from global memory to the shared memory.
+  // There are 512 threads. Wach one is responsible for 4 nodes (256 bits).
+  for (u64 n = 0; n < 4; ++n) {
+    thread_mem[n]          = global_mem[gi * 4 + n];
+    shared_mem[ti * 4 + n] = thread_mem[n];
+  }
+
+  __syncthreads();
+
+  // Applies rewrite rules to the nodes this thread is responsible for.
+  // TODO: complete this with all rules. This should occur in two sync steps:
+  // - 1. Allocate required space for duplications.
+  // - 2. Rewrite reducible nodes as bi-wires.
+  // - 3. From all ports, perform a walk to connect them to nodes.
+  // - 4. Clean up the bi-wires.
+  // As explained: https://github.com/maiavictor/absal-ex
+  for (u64 n = 0; n < 4; ++n) {
+    u64 a_indx = ti * 4 + n;
+    u64 a_node = shared_mem[a_indx];
+    u64 b_indx = get_dist(a_node, 0) + a_indx;
+    if (b_indx < 2048) {
+      u64 b_node = shared_mem[b_indx];
+      if (!eql(a_node, air) && !eql(b_node, air) && (get_dist(a_node, 0) + get_dist(b_node, 0) == 0) && get_slot(b_node, 0) == 0) {
+        thread_mem[n] = air; // just for testing
+      }
+    }
+  }
+
+  // TODO: movement rules?
+
+  __syncthreads();
+
+  // Writes results back to global memory
+  for (u64 n = 0; n < 4; ++n) {
+    global_mem[gi * 4 + n] = thread_mem[n];
+  }
+}
+
 // ::::::::::
 // :: Main ::
 // ::::::::::
@@ -380,6 +426,13 @@ int main(void) {
   thrust::transform_exclusive_scan(d_net1.begin(), d_net1.end(), d_indx.begin(), is_node(), 0, thrust::plus<u64>());
   thrust::fill(d_net0.begin(), d_net0.end(), air);
   shrink<<<8,16>>>(thrust::raw_pointer_cast(&d_net1[0]), thrust::raw_pointer_cast(&d_net0[0]), thrust::raw_pointer_cast(&d_indx[0]));
+  
+  // Sends to CPU & prints
+  h_net = d_net0;
+  print_net(&h_net[0], h_net.size(), true, true, true);
+
+  // Reduces
+  reduce_slice<<<1,256>>>(thrust::raw_pointer_cast(&d_net0[0]));
   
   // Sends to CPU & prints
   h_net = d_net0;
