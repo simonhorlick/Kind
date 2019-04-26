@@ -19,12 +19,28 @@ typedef double   f64;
 // :: Node ::
 // ::::::::::
 
+// type=0 is a normal node
+// type=1 is a duplicating node
+// type=2 is a wire
 __host__ __device__
 u64 new_node(u64 kind, i64 a_dist, u64 a_slot, i64 b_dist, u64 b_slot, i64 c_dist, u64 c_slot) {
   return (kind << 54)
       | (a_slot << 52) | ((u64)(a_dist + 32768) << 36)
       | (b_slot << 34) | ((u64)(b_dist + 32768) << 18)
       | (c_slot << 16) | ((u64)(c_dist + 32768) <<  0);
+}
+
+__constant__
+const u64 air = 0x8000600028000; // new_node(0, 0,0, 0,1, 0,2)
+
+__host__ __device__ 
+u64 set_type(u64 node, u64 type) {
+  return (node & ~((u64)0x3 << 62)) | (type << 62);
+}
+
+__host__ __device__
+u64 get_type(u64 node) {
+  return (node >> 62) & 0x3;
 }
 
 __host__ __device__
@@ -70,8 +86,14 @@ f64 get_force(u64 node) {
   return (f64)((x < 0 ? -1 : 1) * x * x + (y < 0 ? -1 : 1) * y * y + (z < 0 ? -1 : 1) * z * z);
 }
 
-__constant__
-const u64 air = 0x8000600028000; // new_node(0, 0,0, 0,1, 0,2)
+__host__ __device__
+u64 get_redex_type(u64 a_node, u64 b_node) {
+  if (!eql(a_node, air) && !eql(b_node, air) && get_dist(a_node, 0) + get_dist(b_node, 0) == 0 && get_slot(a_node, 0) == 0) {
+    return get_kind(a_node) == get_kind(b_node) ? 1 : 2;
+  } else {
+    return 0;
+  }
+}
 
 // :::::::::
 // :: Net ::
@@ -255,14 +277,27 @@ std::string show_slot(u64 node, u64 slot) {
 
 std::string show_node(u64 node) {
   std::string str;
-  str.append(std::to_string(get_kind(node)));
-  for (int slot = 0; slot < 3; ++slot) {
-    str.append(slot > 0 ? " " : "[");
-    str.append(show_slot(node, slot));
+  if (eql(node, air)) {
+    str.append("~");
+  } else if (get_type(node) == 2) {
+    str.append("-(");
+    str.append(show_slot(node, 1));
+    str.append(" ");
+    str.append(show_slot(node, 2));
+    str.append(")-");
+  } else {
+    str.append(std::to_string(get_kind(node)));
+    for (int slot = 0; slot < 3; ++slot) {
+      str.append(slot > 0 ? " " : "[");
+      str.append(show_slot(node, slot));
+    }
+    str.append("] {");
+    str.append(std::to_string(get_force(node)));
+    str.append("}");
+    if (get_type(node) == 1) {
+      str.append(" *");
+    }
   }
-  str.append("] {");
-  str.append(std::to_string(get_force(node)));
-  str.append("}");
   return str;
 }
 
@@ -316,6 +351,9 @@ void print_nums(u64 *vec, u64 len) {
   std::cout << std::endl;
 }
 
+/*
+// Probably not necessary, performing expansions inside shared memory instead
+
 __global__
 void expand(u64 *src, u64 *dst) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -342,50 +380,104 @@ void shrink(u64 *src, u64 *dst, u64 *mov) {
       (i64)z_dst_indx - (i64)dst_indx, get_slot(node, 2));
   }
 }
+*/
+
+// Adapted from: https://www.mimuw.edu.pl/~ps209291/kgkp/slides/scan.pdf
+// Note: maximum length = threads_per_block * 2
+__device__ void scansum(u64 *data, u64 len) {
+  u64 thid = threadIdx.x;
+  u64 offset = 1;
+  for (u64 d = len>>1; d > 0; d >>= 1) { // build sum in place up the tree
+    __syncthreads();
+    if (thid < d) {
+      u64 ai = offset*(2*thid+1)-1;
+      u64 bi = offset*(2*thid+2)-1;
+      data[bi] += data[ai];
+    }
+    offset *= 2;
+  }
+  if (thid == 0) {
+    data[len - 1] = 0;
+  }
+  for (u64 d = 1; d < len; d *= 2) { // traverse down tree & build scan
+    offset >>= 1;
+    __syncthreads();
+    if (thid < d) {
+      u64 ai = offset*(2*thid+1)-1;
+      u64 bi = offset*(2*thid+2)-1;
+      u64 t = data[ai];
+      data[ai] = data[bi];
+      data[bi] += t;
+    }
+  }
+}
 
 // Reduces a slice of 2048 nodes as much as possible on shared memory in parallel.
-__global__
-void reduce_slice(u64 *global_mem) {
-  __shared__ u64 shared_mem[2048];
-  u64 thread_mem[4];
+__global__ void reduce_slice(u64 *global_mem) {
+  __shared__ u64 shared_mem[4096];
+  __shared__ u64 new_indx[2048];
+  u64 thread_mem[2];
   u64 ti = threadIdx.x;
   u64 gi = blockIdx.x * blockDim.x + ti;
 
-  // Loads a slice of 2048 nodes (16kb) from global memory to the shared memory.
-  // There are 512 threads. Wach one is responsible for 4 nodes (256 bits).
-  for (u64 n = 0; n < 4; ++n) {
-    thread_mem[n]          = global_mem[gi * 4 + n];
-    shared_mem[ti * 4 + n] = thread_mem[n];
+  // 1. Loads a slice of 2048 nodes (16kb) from global memory to the shared memory.
+  //    (There are 1024 threads. Each one is responsible for 2 nodes (128 bits).)
+  for (u64 n = 0; n < 2; ++n) {
+    shared_mem[ti * 2 + n] = thread_mem[n] = global_mem[gi * 2 + n];
   }
 
   __syncthreads();
-
-  // Applies rewrite rules to the nodes this thread is responsible for.
-  // TODO: complete this with all rules. This should occur in two sync steps:
-  // - 1. Allocate required space for duplications.
-  // - 2. Rewrite reducible nodes as bi-wires.
-  // - 3. From all ports, perform a walk to connect them to nodes.
-  // - 4. Clean up the bi-wires.
-  // As explained: https://github.com/maiavictor/absal-ex
-  for (u64 n = 0; n < 4; ++n) {
-    u64 a_indx = ti * 4 + n;
-    u64 a_node = shared_mem[a_indx];
+  
+  // 2. Allocates the space required for duplications by moving nodes.
+  // 2a. Computes the destination index of each node with a scansum of their
+  //     space needs (inactive nodes = 1, ani nodes = 0, dup nodes = 3);
+  for (u64 n = 0; n < 2; ++n) {  
+    u64 a_indx = ti * 2 + n;
+    u64 a_node = thread_mem[n];
     u64 b_indx = get_dist(a_node, 0) + a_indx;
-    if (b_indx < 2048) {
-      u64 b_node = shared_mem[b_indx];
-      if (!eql(a_node, air) && !eql(b_node, air) && (get_dist(a_node, 0) + get_dist(b_node, 0) == 0) && get_slot(b_node, 0) == 0) {
-        thread_mem[n] = air; // just for testing
-      }
+    u64 b_node = shared_mem[b_indx];
+    new_indx[a_indx] = eql(a_node, air) ? 0 : get_redex_type(a_node, b_node) == 2 ? 3 : 1;
+  }
+  scansum(new_indx, 2048);
+  __syncthreads();
+  for (u64 n = 0; n < 2; ++n) {
+    u64 a_indx = ti * 2 + n;
+    shared_mem[a_indx] = air;
+  }
+  __syncthreads();
+  for (u64 n = 0; n < 2; ++n) {
+    u64 a_indx = ti * 2 + n;
+    u64 a_node = thread_mem[n];
+    u64 t_indx = new_indx[a_indx];
+    if (!eql(a_node, air)) {
+      u64 x_t_indx = new_indx[get_dist(a_node, 0) + a_indx];
+      u64 y_t_indx = new_indx[get_dist(a_node, 1) + a_indx];
+      u64 z_t_indx = new_indx[get_dist(a_node, 2) + a_indx];
+      shared_mem[t_indx] = new_node(get_kind(a_node),
+        (i64)x_t_indx - (i64)t_indx, get_slot(a_node, 0),
+        (i64)y_t_indx - (i64)t_indx, get_slot(a_node, 1),
+        (i64)z_t_indx - (i64)t_indx, get_slot(a_node, 2));
     }
   }
 
-  // TODO: movement rules?
-
-  __syncthreads();
-
-  // Writes results back to global memory
+  // 3. Rewrites reducible nodes.
+  //    TODO: is it possible to perform atomic links?
   for (u64 n = 0; n < 4; ++n) {
-    global_mem[gi * 4 + n] = thread_mem[n];
+    u64 a_indx = ti * 4 + n;
+    u64 a_node = thread_mem[n];
+    u64 b_indx = get_dist(a_node, 0) + a_indx;
+    if (b_indx < 2048) {
+      u64 b_node = shared_mem[b_indx];
+      // ...
+    }
+  }
+
+  // 4. Movement rules.
+  // TODO
+
+  // 5. Writes results back to global memory
+  for (u64 n = 0; n < 2; ++n) {
+    global_mem[gi * 2 + n] = shared_mem[ti * 2 + n];
   }
 }
 
@@ -400,43 +492,29 @@ struct is_node : public thrust::unary_function<u64,u64> {
 const std::vector<u64> ex = {0x0028000a00f08000,0x0028001200b8803b,0x0028001a006c7fff,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217fe5,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0017fd26000e8001,0x00280012002a7fff,0x00280012001c7fff,0x00080015fff47fff,0x0007fff200108001,0x0027fff6000c8001,0x0027fff600068001,0x00280015fffe7fff,0x0017ffc5fff47fff,0x0017ff9600008001,0x0027fffa00018000,0x0017ff6a00048001,0x0027fff600017fff,0x0027fc5200057fc4,0x0017fffa00048001,0x0027fff600017fff};  
 
 int main(void) {
-
   // Creates net on host
-  thrust::host_vector<u64> h_net(256);
-  thrust::host_vector<u64> h_indx(256);
+  thrust::host_vector<u64> h_net(4096);
   thrust::fill(h_net.begin(), h_net.begin() + h_net.size(), air);
-  thrust::fill(h_indx.begin(), h_indx.begin() + h_indx.size(), 0);
   for (int i = 0; i < ex.size(); ++i) h_net[i] = ex[i];
 
+  reduce_pass(&h_net[0], h_net.size());
+  reduce_pass(&h_net[0], h_net.size());
+  reduce_pass(&h_net[0], h_net.size());
+
+  print_net(&h_net[0], h_net.size(), true, true, true);
+
   // Sends to GPU
-  thrust::device_vector<u64> d_net0 = h_net;
-  thrust::device_vector<u64> d_net1(d_net0.size());
-  thrust::device_vector<u64> d_indx(d_net0.size());
-  
-  // Expands
-  thrust::fill(d_net1.begin(), d_net1.end(), air);
-  expand<<<8,16>>>(thrust::raw_pointer_cast(&d_net0[0]), thrust::raw_pointer_cast(&d_net1[0]));
-
-  // Sends to CPU & prints
-  h_net = d_net1;
-  print_net(&h_net[0], h_net.size(), true, true, true);
-
-  // Shrinks
-  thrust::fill(d_indx.begin(), d_indx.end(), 0);
-  thrust::transform_exclusive_scan(d_net1.begin(), d_net1.end(), d_indx.begin(), is_node(), 0, thrust::plus<u64>());
-  thrust::fill(d_net0.begin(), d_net0.end(), air);
-  shrink<<<8,16>>>(thrust::raw_pointer_cast(&d_net1[0]), thrust::raw_pointer_cast(&d_net0[0]), thrust::raw_pointer_cast(&d_indx[0]));
-  
-  // Sends to CPU & prints
-  h_net = d_net0;
-  print_net(&h_net[0], h_net.size(), true, true, true);
+  thrust::device_vector<u64> d_net = h_net;
 
   // Reduces
-  reduce_slice<<<1,256>>>(thrust::raw_pointer_cast(&d_net0[0]));
+  reduce_slice<<<1,1024>>>(thrust::raw_pointer_cast(&d_net[0]));
   
   // Sends to CPU & prints
-  h_net = d_net0;
+  h_net = d_net;
   print_net(&h_net[0], h_net.size(), true, true, true);
+  /*print_nums(&h_net[0], h_net.size());*/
+
 
   return 0;
 }
+
