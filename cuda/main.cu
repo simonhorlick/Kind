@@ -12,6 +12,7 @@
 #include <thrust/scan.h>
 
 typedef  int64_t i64;
+typedef uint64_t u32;
 typedef uint64_t u64;
 typedef double   f64;
 
@@ -72,6 +73,13 @@ u64 inc_ports(u64 node, i64 delta) {
 __host__ __device__
 u64 set_port(u64 node, u64 slot, i64 new_dist, u64 new_slot) {
   return (node & ~((u64)0x3FFFF << (36 - slot * 18))) | (((new_slot << 16) | (u64)(new_dist + 32768)) << (36 - slot * 18));
+}
+
+__host__ __device__
+u64 has_externals(u64 node, u64 indx, u64 radius) {
+  return get_dist(node, 0) + indx >= radius
+      || get_dist(node, 1) + indx >= radius
+      || get_dist(node, 2) + indx >= radius;
 }
 
 __host__ __device__
@@ -244,7 +252,7 @@ bool is_valid(u64 *net, u64 len) {
           c_node = net[c_indx];
         }
         if (a_indx != c_indx || a_slot != c_slot) {
-          std::cout << "bad " << a_indx << ":" << a_slot << " " << b_indx << ":" << b_slot << " " << c_indx << ":" << b_slot << std::endl;
+          std::cout << "bad " << a_indx << ":" << a_slot << " " << b_indx << ":" << b_slot << " " << c_indx << ":" << c_slot << std::endl;
           return false;
         }
       }
@@ -327,7 +335,7 @@ std::string plot_nums(std::vector<f64> &nums, std::vector<u64> &cols) {
       case 8: str.append("█"); break;
     }
     str.append("\x1b[0m");
-    if (i % 128 == 127 && i < nums.size() - 1) {
+    if (i % 256 == 255 && i < nums.size() - 1) {
       str.append("\n");
     }
   }
@@ -347,7 +355,7 @@ void print_net(u64 *net, u64 len, bool show_nodes, bool show_stats, bool show_he
     std::vector<f64> nums;
     std::vector<u64> cols;
     for (u64 i = 0; i < len; ++i) {
-      nums.push_back(eql(net[i], air) ? 0 : 1.0 / 8.0 + sqrt(abs(get_force(net[i]))) / 64.0);
+      nums.push_back(eql(net[i], air) ? 0 : 1.0 / 8.0 + sqrt(abs(get_force(net[i]))) / 256.0);
       cols.push_back(is_wire(net[i]) ? 3 : eql(net[i],dot) ? 4 : get_redex_type_at(net, len, i));
     }
     std::cout << plot_nums(nums, cols) << std::endl;
@@ -361,40 +369,17 @@ void print_nums(u64 *vec, u64 len) {
   std::cout << std::endl;
 }
 
-/*
-// Probably not necessary, performing expansions inside shared memory instead
+// :::::::::
+// :: GPU ::
+// :::::::::
 
-__global__
-void expand(u64 *src, u64 *dst) {
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
-  u64 node = src[i];
-  dst[i * 2 + 0] = new_node(get_kind(node),
-    get_dist(node, 0) * 2, get_slot(node, 0),
-    get_dist(node, 1) * 2, get_slot(node, 1),
-    get_dist(node, 2) * 2, get_slot(node, 2));
-  dst[i * 2 + 1] = air;
-}
-
-__global__
-void shrink(u64 *src, u64 *dst, u64 *mov) {
-  u64 src_indx = blockIdx.x * blockDim.x + threadIdx.x;
-  u64 dst_indx = mov[src_indx];
-  u64 node = src[src_indx]; 
-  if (!eql(node, air)) {
-    u64 x_dst_indx = mov[get_dist(node, 0) + src_indx];
-    u64 y_dst_indx = mov[get_dist(node, 1) + src_indx];
-    u64 z_dst_indx = mov[get_dist(node, 2) + src_indx];
-    dst[dst_indx] = new_node(get_kind(node),
-      (i64)x_dst_indx - (i64)dst_indx, get_slot(node, 0),
-      (i64)y_dst_indx - (i64)dst_indx, get_slot(node, 1),
-      (i64)z_dst_indx - (i64)dst_indx, get_slot(node, 2));
-  }
-}
-*/
+/*struct is_node : public thrust::unary_function<u64,u64> {*/
+  /*__host__ __device__ u64 operator()(u64 node) { return eql(node, air) ? 0 : 1; }*/
+/*};*/
 
 // Adapted from: https://www.mimuw.edu.pl/~ps209291/kgkp/slides/scan.pdf
 // Note: maximum length = threads_per_block * 2
-__device__ void scansum(u64 *data, u64 len) {
+__device__ void scansum(u32 *data, u64 len) {
   u64 thid = threadIdx.x;
   u64 offset = 1;
   for (u64 d = len>>1; d > 0; d >>= 1) { // build sum in place up the tree
@@ -422,30 +407,12 @@ __device__ void scansum(u64 *data, u64 len) {
   }
 }
 
-// Reduces a block of 2048 nodes on shared memory.
-// `snet` is the block with the input nodes that will be reduced.
-// `spos` is the global position of input nodes, which will be updated.
-__device__ void reduce_block(u64 *snet, u64 *spos) {
-  __shared__ u64 mov2[2048];
-  u64 tmem[6];
-  u64 a_indx, a_slot, a_node;
-  u64 b_indx, b_slot, b_node;
-  u64 rdx_ty, n, t_indx[3];
+// Moves nodes to target locations
+__device__ void move_nodes(u64 *snet, u32 *mov2) {
   u64 ti = threadIdx.x;
-
-  // Computes the dest index of each node by scan-summing their space neds.
-  for (n = 0; n < 2; ++n) { 
-    a_indx = ti * 2 + n;
-    a_node = snet[a_indx];
-    b_indx = get_dist(a_node, 0) + a_indx;
-    b_node = snet[b_indx];
-    rdx_ty = get_redex_type(a_node, b_node);
-    mov2[a_indx] = eql(a_node, air) ? 0 : rdx_ty == 2 ? 3 : 1;
-  }
-  scansum(mov2, 2048);
-  __syncthreads();
-
-  // Moves net to their target locations.
+  u64 tmem[2];
+  u64 o_indx[3];
+  u64 a_indx, a_node, t_indx, t_slot, n;
   for (n = 0; n < 2; ++n) {
     a_indx = ti * 2 + n;
     tmem[n] = snet[a_indx];
@@ -459,23 +426,62 @@ __device__ void reduce_block(u64 *snet, u64 *spos) {
   for (n = 0; n < 2; ++n) {
     a_indx = ti * 2 + n;
     a_node = tmem[n];
-    b_indx = mov2[a_indx];
+    t_indx = mov2[a_indx];
     if (!eql(a_node, air)) {
-      for (b_slot = 0; b_slot < 3; ++b_slot) {
-        t_indx[b_slot] = get_dist(a_node, b_slot) + a_indx;
-        t_indx[b_slot] = t_indx[b_slot] < 2048 ? mov2[t_indx[b_slot]] : t_indx[b_slot];
+      for (t_slot = 0; t_slot < 3; ++t_slot) {
+        o_indx[t_slot] = get_dist(a_node, t_slot) + a_indx;
+        o_indx[t_slot] = o_indx[t_slot] < 2048 ? mov2[o_indx[t_slot]] : o_indx[t_slot];
       }
-      snet[b_indx] = new_node(get_kind(a_node),
-        (i64)t_indx[0] - (i64)b_indx, get_slot(a_node, 0),
-        (i64)t_indx[1] - (i64)b_indx, get_slot(a_node, 1),
-        (i64)t_indx[2] - (i64)b_indx, get_slot(a_node, 2));
-    /*} else {*/
-      /*mov2[a_indx] = 0xFFFFFFFF;*/
+      snet[t_indx] = new_node(get_kind(a_node),
+        (i64)o_indx[0] - (i64)t_indx, get_slot(a_node, 0),
+        (i64)o_indx[1] - (i64)t_indx, get_slot(a_node, 1),
+        (i64)o_indx[2] - (i64)t_indx, get_slot(a_node, 2));
     }
   }
   __syncthreads();
+}
 
-  /*// Performs annihilation and duplication reductions.*/
+// Reduces a block of 2048 nodes on shared memory.
+// `snet` is the block with the input nodes that will be reduced.
+// `spos` is the global position of input nodes, which will be updated.
+__device__ void reduce_block(u64 *snet, u32 *spos, u32 *smem) {
+  u64 tmem[6];
+  u64 a_indx, a_slot, a_node;
+  u64 b_indx, b_slot, b_node;
+  u64 rdx_ty, n;
+  u64 ti = threadIdx.x;
+
+  for (n = 0; n < 2; ++n) {
+    smem[ti * 2 + n] = 0;
+  }
+  __syncthreads();
+  __syncthreads();
+
+  // Computes the dest index of each node by scan-summing their space neds.
+  for (n = 0; n < 2; ++n) { 
+    a_indx = ti * 2 + n;
+    a_node = snet[a_indx];
+    b_indx = get_dist(a_node, 0) + a_indx;
+    if (b_indx < 2048) {
+      b_node = snet[b_indx];
+      rdx_ty = get_redex_type(a_node, b_node);
+      smem[a_indx] = eql(a_node, air) ? 0 : rdx_ty == 2 ? 3 : 1;
+    } else {
+      smem[a_indx] = 1;
+    }
+  }
+  scansum(smem, 2048);
+  __syncthreads();
+
+  // Checks if enough space
+  if (smem[2047] > 2048) {
+    return;
+  }
+
+  // Moves nodes to their target locations.
+  move_nodes(snet, smem);
+
+  // Performs annihilation and duplication reductions.
   for (n = 0; n < 2; ++n) {
     a_indx = ti * 2 + n;
     a_node = snet[a_indx];
@@ -484,15 +490,19 @@ __device__ void reduce_block(u64 *snet, u64 *spos) {
     tmem[n * 3 + 2] = air;
     if (!eql(a_node, air)) {
       b_indx = get_dist(a_node, 0) + a_indx;
-      b_node = snet[b_indx];
-      rdx_ty = get_redex_type(a_node, b_node);
-      if (rdx_ty == 2) {
-        tmem[n * 3 + 0] = to_wire(new_node(0, 0, 0, 1, 0, 2, 0));
-        tmem[n * 3 + 1] = new_node(get_kind(b_node), get_dist(a_node, 1) - 1, get_slot(a_node, 1), (i64)(b_indx+1) - (i64)(a_indx+1), 1, (i64)(b_indx+2) - (i64)(a_indx+1), 1);
-        tmem[n * 3 + 2] = new_node(get_kind(b_node), get_dist(a_node, 2) - 2, get_slot(a_node, 2), (i64)(b_indx+1) - (i64)(a_indx+2), 2, (i64)(b_indx+2) - (i64)(a_indx+2), 2);
-      }
-      if (rdx_ty == 1) {
-        tmem[n * 3 + 0] = to_wire(new_node(0, 0, 0, (i64)b_indx - (i64)a_indx + get_dist(b_node, 1), get_slot(b_node, 1), (i64)b_indx - (i64)a_indx + get_dist(b_node, 2), get_slot(b_node, 2)));
+      if (b_indx < 2048) {
+        b_node = snet[b_indx];
+        if (!has_externals(a_node, a_indx, 2048) && !has_externals(b_node, b_indx, 2048)) {
+          rdx_ty = get_redex_type(a_node, b_node);
+          if (rdx_ty == 2) {
+            tmem[n * 3 + 0] = to_wire(new_node(0, 0, 0, 1, 0, 2, 0));
+            tmem[n * 3 + 1] = new_node(get_kind(b_node), get_dist(a_node, 1) - 1, get_slot(a_node, 1), (i64)(b_indx+1) - (i64)(a_indx+1), 1, (i64)(b_indx+2) - (i64)(a_indx+1), 1);
+            tmem[n * 3 + 2] = new_node(get_kind(b_node), get_dist(a_node, 2) - 2, get_slot(a_node, 2), (i64)(b_indx+1) - (i64)(a_indx+2), 2, (i64)(b_indx+2) - (i64)(a_indx+2), 2);
+          }
+          if (rdx_ty == 1) {
+            tmem[n * 3 + 0] = to_wire(new_node(0, 0, 0, (i64)b_indx - (i64)a_indx + get_dist(b_node, 1), get_slot(b_node, 1), (i64)b_indx - (i64)a_indx + get_dist(b_node, 2), get_slot(b_node, 2)));
+          }
+        }
       }
     }
   }
@@ -510,7 +520,7 @@ __device__ void reduce_block(u64 *snet, u64 *spos) {
   }
   __syncthreads();
 
-  /*// Connects linked ports and cleans unused space.*/
+  // Connects linked ports and cleans unused space.
   for (n = 0; n < 2; ++n) {
     a_indx = ti * 2 + n;
     a_node = snet[a_indx];
@@ -521,32 +531,89 @@ __device__ void reduce_block(u64 *snet, u64 *spos) {
       if (!eql(a_node, air)) {
         for (a_slot = 0; a_slot < 3; ++a_slot) {
           b_indx = get_dist(a_node, a_slot) + a_indx;
-          b_slot = get_slot(a_node, a_slot);
-          b_node = snet[b_indx];
-          while (is_wire(b_node)) {
-            b_indx = get_dist(b_node, b_slot) + b_indx;
-            b_slot = get_slot(b_node, b_slot);
+          if (b_indx < 2048) {
+            b_slot = get_slot(a_node, a_slot);
             b_node = snet[b_indx];
+            while (is_wire(b_node)) {
+              b_indx = get_dist(b_node, b_slot) + b_indx;
+              b_slot = get_slot(b_node, b_slot);
+              b_node = snet[b_indx];
+            }
+            tmem[n] = set_port(tmem[n], a_slot, b_indx - a_indx, b_slot);
           }
-          tmem[n] = set_port(tmem[n], a_slot, b_indx - a_indx, b_slot);
         }
       }
     }
   }
   __syncthreads();
+
   for (n = 0; n < 2; ++n) {
     snet[ti*2+n] = tmem[n];
-    if (spos[ti*2+n] != 0xFFFFFFFF) {
-      spos[ti*2+n] = mov2[spos[ti*2+n]];
+    spos[ti*2+n] = blockIdx.x * blockDim.x * 2 + smem[spos[ti*2+n] - blockIdx.x * blockDim.x * 2];
+  }
+  __syncthreads();
+}
+
+// Moves nodes around in order to minimize their summed distances
+__device__ void chill_block(u64 *snet, u32 *spos, u32 *smem) {
+  u64 tmem[2];
+  u64 a_indx, b_indx, n;
+  u64 ti = threadIdx.x;
+  
+  // Starts smem; initially, it maps target index to source index
+  for (u64 n = 0; n < 2; ++n) {
+    smem[ti * 2 + n] = ti * 2 + n;
+  }
+  __syncthreads();
+
+  // Performs movements
+  for (u64 k = 0; k < 8; ++k) {
+    u64 p = k & 1;
+    if (p == 0 || ti > 0) {
+      a_indx = smem[ti * 2 + 0 - p];
+      b_indx = smem[ti * 2 + 1 - p];
+      if (get_force(snet[a_indx]) > get_force(snet[b_indx])) {
+        smem[ti * 2 + 0 - p] = b_indx;
+        smem[ti * 2 + 1 - p] = a_indx;
+      }
     }
+    __syncthreads();
+  }
+
+  /*a_indx = smem[ti * 2 + 0];*/
+  /*b_indx = smem[ti * 2 + 1];*/
+  /*smem[ti * 2 + 0] = b_indx;*/
+  /*smem[ti * 2 + 1] = a_indx;*/
+  /*__syncthreads();*/
+
+  // Inverses smem, so that it maps source index to target index
+  // smem = 7 3 1 0 2 5 4 6 (initially)
+  // smem = 3 2 4 1 6 5 7 0 (inversed)
+  for (u64 n = 0; n < 2; ++n) {
+    tmem[n] = smem[ti * 2 + n];
+  }
+  __syncthreads();
+  for (u64 n = 0; n < 2; ++n) {
+    smem[tmem[n]] = ti * 2 + n;
+  }
+  __syncthreads();
+
+  // Moves modes to their target locations.
+  move_nodes(snet, smem);
+  __syncthreads();
+
+  // Saves data
+  for (n = 0; n < 2; ++n) {
+    spos[ti*2+n] = blockIdx.x * blockDim.x * 2 + smem[spos[ti*2+n] - blockIdx.x * blockDim.x * 2];
   }
   __syncthreads();
 }
 
 // Reduces all blocks in parallel.
-__global__ void reduce_blocks(u64 *gnet, u64 *gpos) {
+__global__ void reduce_blocks(u64 *gnet, u64 *gpos, u64 local_passes) {
   __shared__ u64 snet[2048];
-  __shared__ u64 spos[2048];
+  __shared__ u32 spos[2048];
+  __shared__ u32 smem[2048];
 
   u64 ti = threadIdx.x;
   u64 gi = blockIdx.x * blockDim.x + ti;
@@ -559,15 +626,165 @@ __global__ void reduce_blocks(u64 *gnet, u64 *gpos) {
   __syncthreads();
 
   // Performs a few parallel reductions.
-  for (u64 n = 0; n < 256; ++n) {
-    reduce_block(snet, spos);
+  for (u64 pass = 0; pass < local_passes; ++pass) {
+    reduce_block(snet, spos, smem);
   }
-  
-  // Writes results back to global memory
+  for (u64 pass = 0; pass < local_passes * 8; ++pass) {
+    chill_block(snet, spos, smem);
+  }
+  __syncthreads();
+
+  // Writes results back to global memory.
   for (u64 n = 0; n < 2; ++n) {
     gnet[gi*2+n] = snet[ti*2+n];
     gpos[gi*2+n] = spos[ti*2+n];
   }
+}
+
+// Reconnects cross-block links.
+__global__ void adjust_cross_block_links(u64 *gnet, u64 *gpos) {
+  u64 gi = blockIdx.x * blockDim.x + threadIdx.x;
+  for (u64 n = 0; n < 2; ++n) {
+    u64 a_indx = gi*2+n;
+    u64 a_node = gnet[a_indx];
+    if (!eql(a_node, air)) {
+      for (u64 a_slot = 0; a_slot < 3; ++a_slot) {
+        u64 i_indx = gi * 2 - (gi * 2 % 2048);
+        u64 b_indx = get_dist(a_node, a_slot) + a_indx;
+        u64 b_slot = get_slot(a_node, a_slot);
+        if (b_indx < i_indx || b_indx >= i_indx + 2048) {
+          a_node = set_port(a_node, a_slot, gpos[b_indx] - a_indx, b_slot);
+        }
+      }
+      gnet[gi*2+n] = a_node;
+    }
+  }
+}
+
+// Compacts net, removing gaps and expanding as needed
+__global__ void compact(u64 *src, u64 *dst, u64 *gloc, u64 expand) {
+  u64 src_indx = blockIdx.x * blockDim.x + threadIdx.x;
+  u64 dst_indx = (src_indx + gloc[src_indx / 2048] - (src_indx / 2048 * 2048)) * expand;
+  u64 node = src[src_indx]; 
+  if (!eql(node, air)) {
+    u64 x_src_indx = get_dist(node, 0) + src_indx;
+    u64 x_dst_indx = (x_src_indx + gloc[x_src_indx / 2048] - (x_src_indx / 2048 * 2048)) * expand;
+    u64 y_src_indx = get_dist(node, 1) + src_indx;
+    u64 y_dst_indx = (y_src_indx + gloc[y_src_indx / 2048] - (y_src_indx / 2048 * 2048)) * expand;
+    u64 z_src_indx = get_dist(node, 2) + src_indx;
+    u64 z_dst_indx = (z_src_indx + gloc[z_src_indx / 2048] - (z_src_indx / 2048 * 2048)) * expand;
+    dst[dst_indx] = new_node(get_kind(node),
+      (i64)x_dst_indx - (i64)dst_indx, get_slot(node, 0),
+      (i64)y_dst_indx - (i64)dst_indx, get_slot(node, 1),
+      (i64)z_dst_indx - (i64)dst_indx, get_slot(node, 2));
+  }
+}
+
+
+// Gets number of nodes in each block
+__global__ void get_block_max_index(u64 *gnet, u64 *gmax) {
+  __shared__ u32 smem[2048];
+
+  u64 ti = threadIdx.x;
+  u64 gi = blockIdx.x * blockDim.x + threadIdx.x;
+
+  for (u64 n = 0; n < 2; ++n) {
+    smem[ti*2+n] = eql(gnet[gi*2+n],air) ? 0 : ti*2+n;
+  }
+  __syncthreads();
+
+  for (u64 l = 0; l <= 10; ++l) {
+    if (ti < (1024 >> l)) {
+      u64 i = ti * (2 << l);
+      u64 j = i + (2 << l >> 1);
+      smem[i] = max(smem[i], smem[j]);
+    }
+    __syncthreads();
+  }
+
+  if (ti == 0) {
+    gmax[gi] = smem[0] + 1;
+  }
+  __syncthreads();
+}
+
+std::vector<u64> parallel_reduce(u64 *net, u64 len) {
+  const u64 global_passes = 36;
+  const u64 local_passes = 16;
+
+  const u64 max_nodes = 2048 * 2;
+  const u64 nodes_per_block = 2048;
+  const u64 total_blocks = max_nodes / nodes_per_block;
+  const u64 threads_per_block = 1024;
+
+  // Allocates memory on the CPU
+  thrust::host_vector<u64> h_net(max_nodes);
+  thrust::host_vector<u64> h_pos(max_nodes);
+  thrust::host_vector<u64> h_loc(total_blocks);
+
+  // Allocates memory on the GPU
+  thrust::device_vector<u64> d_net(max_nodes);
+  thrust::device_vector<u64> d_tmp(max_nodes);
+  thrust::device_vector<u64> d_pos(max_nodes);
+  thrust::device_vector<u64> d_loc(total_blocks);
+
+  // Builds data on the CPU
+  thrust::fill(h_net.begin(), h_net.begin() + h_net.size(), air);
+  for (int i = 0; i < len; ++i) {
+    h_net[i] = net[i];
+  }
+
+  // Sends data to the GPU
+  d_net = h_net;
+  d_pos = h_pos;
+
+  for (u64 pass = 0; pass < global_passes; ++pass) {
+    // Cleans position buffer
+    thrust::sequence(d_pos.begin(), d_pos.end());
+
+    // Reduces each block in isolation
+    reduce_blocks<<<max_nodes / nodes_per_block, threads_per_block>>>(
+      thrust::raw_pointer_cast(&d_net[0]),
+      thrust::raw_pointer_cast(&d_pos[0]),
+      local_passes);
+
+    // Adjust cross-blocks links
+    adjust_cross_block_links<<<max_nodes / nodes_per_block, threads_per_block>>>(
+      thrust::raw_pointer_cast(&d_net[0]),
+      thrust::raw_pointer_cast(&d_pos[0]));
+
+    // Gets the new location of each block
+    get_block_max_index<<<max_nodes / nodes_per_block, threads_per_block>>>(
+      thrust::raw_pointer_cast(&d_net[0]),
+      thrust::raw_pointer_cast(&d_loc[0]));
+    thrust::exclusive_scan(d_loc.begin(), d_loc.end(), d_loc.begin());
+
+    // Compacts net
+    thrust::fill(d_tmp.begin(), d_tmp.end(), air);
+    compact<<<max_nodes / 256, 256>>>(
+      thrust::raw_pointer_cast(&d_net[0]),
+      thrust::raw_pointer_cast(&d_tmp[0]),
+      thrust::raw_pointer_cast(&d_loc[0]),
+      1);
+    d_net = d_tmp;
+
+    // DEBUG: Sends to CPU & prints
+    h_net = d_net;
+    std::cout << "After pass " << pass << ":" << std::endl;
+    print_net(&h_net[0], h_net.size(), false, true, true);
+  }
+
+  // Sends data to the CPU
+  h_net = d_net;
+  h_loc = d_loc;
+
+  // Builds result vector
+  std::vector<u64> result;
+  for (int i = 0; i < max_nodes; ++i) {
+    result.push_back(h_net[i]);
+  }
+
+  return result;
 }
 
 // ::::::::::
@@ -578,37 +795,24 @@ struct is_node : public thrust::unary_function<u64,u64> {
   __host__ __device__ u64 operator()(u64 node) { return eql(node, air) ? 0 : 1; }
 };
 
-const std::vector<u64> ex = {0x0028000a00f08000,0x0028001200b8803b,0x0028001a006c7fff,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217fe5,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0017fd26000e8001,0x00280012002a7fff,0x00280012001c7fff,0x00080015fff47fff,0x0007fff200108001,0x0027fff6000c8001,0x0027fff600068001,0x00280015fffe7fff,0x0017ffc5fff47fff,0x0017ff9600008001,0x0027fffa00018000,0x0017ff6a00048001,0x0027fff600017fff,0x0027fc5200057fc4,0x0017fffa00048001,0x0027fff600017fff};  
+/*std::vector<u64> net = {0x0028000a00f08000,0x0028001200b8803b,0x0028001a006c7fff,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217fe5,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0017fd26000e8001,0x00280012002a7fff,0x00280012001c7fff,0x00080015fff47fff,0x0007fff200108001,0x0027fff6000c8001,0x0027fff600068001,0x00280015fffe7fff,0x0017ffc5fff47fff,0x0017ff9600008001,0x0027fffa00018000,0x0017ff6a00048001,0x0027fff600017fff,0x0027fc5200057fc4,0x0017fffa00048001,0x0027fff600017fff};*/
+std::vector<u64> net = {0x0028000a03788000,0x00280012034080dd,0x0028001a02f47fff,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a02897ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a021d7ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a01b17ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a01457ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a00d97ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a006d7ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217fe5,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217fca,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217faf,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217f94,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217f79,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217f5e,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217f43,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0017f306000e8001,0x00280012002a7fff,0x00280012001c7fff,0x00080015fff47fff,0x0007fff200108001,0x0027fff6000c8001,0x0027fff600068001,0x00280015fffe7fff,0x0017ffc5fff47fff,0x0017ff9600008001,0x0027fffa00018000,0x0017ff6a00048001,0x0027fff600017fff,0x0027f23200057f22,0x0017fffa00048001,0x0027fff600017fff};
 
 int main(void) {
-  // Creates net on host
-  thrust::host_vector<u64> h_net(4096);
-  thrust::fill(h_net.begin(), h_net.begin() + h_net.size(), air);
-  for (int i = 0; i < ex.size(); ++i) h_net[i] = ex[i];
-  h_net[128] = dot;
-  thrust::host_vector<u64> h_pos(4096);
-  thrust::sequence(h_pos.begin(), h_pos.end());
+  /*std::cout << (u64)((u64)10 + ((i64)(-4))) << std::endl;*/
 
-  /*for (u64 i = 0; i < 3; ++i) {*/
-    /*reduce_pass(&h_net[0], h_net.size());*/
-  /*}*/
-  print_net(&h_net[0], h_net.size() / 8, false, true, true);
-
-  // Sends to GPU
-  thrust::device_vector<u64> d_net = h_net;
-  thrust::device_vector<u64> d_pos = h_pos;
+  // Prints it
+  std::cout << "Input net: " << std::endl;
+  print_net(&net[0], net.size(), false, true, true);
 
   // Reduces
-  reduce_blocks<<<1,1024>>>(thrust::raw_pointer_cast(&d_net[0]), thrust::raw_pointer_cast(&d_pos[0]));
+  std::vector<u64> net2 = parallel_reduce(&net[0], net.size());
 
   // Sends to CPU & prints
-  h_net = d_net;
-  print_net(&h_net[0], h_net.size() / 8, false, true, true);
-
-  // Tests if it tracked the dot position correctly.
-  h_pos = d_pos;
-  std::cout << "Dot position: " << h_pos[128] << " (" << (eql(h_net[h_pos[128]], dot) ? "correct" : "wrong") << ")" << std::endl;
+  /*print_net(&net2[0], net2.size(), false, true, true);*/
 
   return 0;
 }
 
+
+// TODO: when  
