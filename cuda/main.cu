@@ -32,15 +32,16 @@ u64 new_node(u64 kind, i64 a_dist, u64 a_slot, i64 b_dist, u64 b_slot, i64 c_dis
 
 __constant__
 const u64 air = 0x8000600028000; // new_node(0, 0,0, 0,1, 0,2)
+const u64 dot = 11259024838262784;
 
 __host__ __device__ 
-u64 set_type(u64 node, u64 type) {
-  return (node & ~((u64)0x3 << 62)) | (type << 62);
+u64 to_wire(u64 node) {
+  return (node & ~((u64)0x1 << 63)) | ((u64)1 << 63);
 }
 
 __host__ __device__
-u64 get_type(u64 node) {
-  return (node >> 62) & 0x3;
+u64 is_wire(u64 node) {
+  return (node >> 63) & 0x1;
 }
 
 __host__ __device__
@@ -137,15 +138,11 @@ void unlink(u64 *net, u64 len, u64 a_indx, u64 a_slot) {
 }
 
 __host__ __device__
-u64 redex_type(u64* net, u64 len, u64 a_indx) {
+u64 get_redex_type_at(u64* net, u64 len, u64 a_indx) {
   u64 a_node = net[a_indx];
   u64 b_indx = get_dist(a_node, 0) + a_indx;
   u64 b_node = net[b_indx];
-  if (get_slot(a_node, 0) == 0 && (get_dist(a_node, 0) + get_dist(b_node, 0)) == 0 && !eql(a_node, air)) {
-    return get_kind(a_node) == get_kind(b_node) ? 1 : 2;
-  } else {
-    return 0;
-  }
+  return get_redex_type(a_node, b_node);
 };
 
 __host__ __device__
@@ -153,7 +150,7 @@ bool rewrite(u64* net, u64 len, u64 a_indx) {
   u64 a_node = net[a_indx];
   u64 b_indx = a_indx + get_dist(a_node, 0);
   u64 b_node = net[b_indx];
-  if (redex_type(net, len, a_indx) == 0) return false;
+  if (get_redex_type_at(net, len, a_indx) == 0) return false;
   if (get_kind(a_node) == get_kind(b_node)) {
     u64 a1_indx = get_dist(net[a_indx], 1) + a_indx;
     u64 a1_slot = get_slot(net[a_indx], 1);
@@ -222,16 +219,34 @@ void chill(u64 *net, u64 len) {
   }
 }
 
-__host__ __device__
 bool is_valid(u64 *net, u64 len) {
-  for (u64 a_indx = 0; a_indx < len; ++a_indx) {
-    for (u64 a_slot = 0; a_slot < 3; ++a_slot) {
-      u64 a_node = net[a_indx];
-      u64 b_indx = get_dist(a_node, a_slot) + a_indx;
-      u64 b_slot = get_slot(a_node, a_slot);
-      u64 b_node = net[b_indx];
-      if (get_dist(b_node,b_slot) != a_indx - b_indx || get_slot(b_node,b_slot) != a_slot) {
-        return false;
+  u64 a_indx, a_slot, a_node;
+  u64 b_indx, b_slot, b_node; 
+  u64 c_indx, c_slot, c_node; 
+  for (a_indx = 0; a_indx < len; ++a_indx) {
+    a_node = net[a_indx];
+    if (!eql(a_node, air) && !is_wire(a_node)) {
+      for (a_slot = 0; a_slot < 3; ++a_slot) {
+        b_indx = get_dist(a_node, a_slot) + a_indx;
+        b_slot = get_slot(a_node, a_slot);
+        b_node = net[b_indx];
+        while (is_wire(b_node)) {
+          b_indx = get_dist(b_node, b_slot) + b_indx;
+          b_slot = get_slot(b_node, b_slot);
+          b_node = net[b_indx];
+        }
+        c_indx = get_dist(b_node, b_slot) + b_indx;
+        c_slot = get_slot(b_node, b_slot);
+        c_node = net[c_indx];
+        while (is_wire(c_node)) {
+          c_indx = get_dist(c_node, c_slot) + c_indx;
+          c_slot = get_slot(c_node, c_slot);
+          c_node = net[c_indx];
+        }
+        if (a_indx != c_indx || a_slot != c_slot) {
+          std::cout << "bad " << a_indx << ":" << a_slot << " " << b_indx << ":" << b_slot << " " << c_indx << ":" << b_slot << std::endl;
+          return false;
+        }
       }
     }
   }
@@ -242,7 +257,7 @@ std::vector<u64> redexes(u64 *net, u64 len) {
   std::vector<u64> redexes;
   for (u64 a_indx = 0; a_indx < len; ++a_indx) {
     u64 b_indx = get_dist(net[a_indx], 0) + a_indx;
-    if (a_indx <= b_indx && redex_type(net, len, a_indx) > 0) {
+    if (a_indx <= b_indx && get_redex_type_at(net, len, a_indx) > 0) {
       redexes.push_back(a_indx);
     }
   }
@@ -279,14 +294,12 @@ std::string show_node(u64 node) {
   std::string str;
   if (eql(node, air)) {
     str.append("~");
-  } else if (get_type(node) == 2) {
-    str.append("-(");
-    str.append(show_slot(node, 1));
-    str.append(" ");
-    str.append(show_slot(node, 2));
-    str.append(")-");
   } else {
-    str.append(std::to_string(get_kind(node)));
+    if (is_wire(node)) {
+      str.append("-");
+    } else {
+      str.append(std::to_string(get_kind(node)));
+    }
     for (int slot = 0; slot < 3; ++slot) {
       str.append(slot > 0 ? " " : "[");
       str.append(show_slot(node, slot));
@@ -294,9 +307,6 @@ std::string show_node(u64 node) {
     str.append("] {");
     str.append(std::to_string(get_force(node)));
     str.append("}");
-    if (get_type(node) == 1) {
-      str.append(" *");
-    }
   }
   return str;
 }
@@ -304,7 +314,7 @@ std::string show_node(u64 node) {
 std::string plot_nums(std::vector<f64> &nums, std::vector<u64> &cols) {
   std::string str;
   for (uint i = 0; i < nums.size(); ++i) {
-    str.append(cols[i] == 0 ? "\x1b[33m" : cols[i] == 1 ? "\x1b[32m" : "\x1b[31m");
+    str.append(cols[i] == 0 ? "\x1b[33m" : cols[i] == 1 ? "\x1b[32m" : cols[i] == 2 ? "\x1b[31m" : cols[i] == 3 ? "\x1b[34m" : "\x1b[35m");
     switch ((u64)(floor(fmax(fmin(nums[i],(f64)1),(f64)0) * 8))) {
       case 0: str.append(","); break;
       case 1: str.append("▁"); break;
@@ -338,7 +348,7 @@ void print_net(u64 *net, u64 len, bool show_nodes, bool show_stats, bool show_he
     std::vector<u64> cols;
     for (u64 i = 0; i < len; ++i) {
       nums.push_back(eql(net[i], air) ? 0 : 1.0 / 8.0 + sqrt(abs(get_force(net[i]))) / 64.0);
-      cols.push_back(redex_type(net, len, i));
+      cols.push_back(is_wire(net[i]) ? 3 : eql(net[i],dot) ? 4 : get_redex_type_at(net, len, i));
     }
     std::cout << plot_nums(nums, cols) << std::endl;
   }
@@ -412,72 +422,151 @@ __device__ void scansum(u64 *data, u64 len) {
   }
 }
 
-// Reduces a slice of 2048 nodes as much as possible on shared memory in parallel.
-__global__ void reduce_slice(u64 *global_mem) {
-  __shared__ u64 shared_mem[4096];
-  __shared__ u64 new_indx[2048];
-  u64 thread_mem[2];
+// Reduces a block of 2048 nodes on shared memory.
+// `snet` is the block with the input nodes that will be reduced.
+// `spos` is the global position of input nodes, which will be updated.
+__device__ void reduce_block(u64 *snet, u64 *spos) {
+  __shared__ u64 mov2[2048];
+  u64 tmem[6];
+  u64 a_indx, a_slot, a_node;
+  u64 b_indx, b_slot, b_node;
+  u64 rdx_ty, n, t_indx[3];
+  u64 ti = threadIdx.x;
+
+  // Computes the dest index of each node by scan-summing their space neds.
+  for (n = 0; n < 2; ++n) { 
+    a_indx = ti * 2 + n;
+    a_node = snet[a_indx];
+    b_indx = get_dist(a_node, 0) + a_indx;
+    b_node = snet[b_indx];
+    rdx_ty = get_redex_type(a_node, b_node);
+    mov2[a_indx] = eql(a_node, air) ? 0 : rdx_ty == 2 ? 3 : 1;
+  }
+  scansum(mov2, 2048);
+  __syncthreads();
+
+  // Moves net to their target locations.
+  for (n = 0; n < 2; ++n) {
+    a_indx = ti * 2 + n;
+    tmem[n] = snet[a_indx];
+  }
+  __syncthreads();
+  for (n = 0; n < 2; ++n) {
+    a_indx = ti * 2 + n;
+    snet[a_indx] = air;
+  }
+  __syncthreads();
+  for (n = 0; n < 2; ++n) {
+    a_indx = ti * 2 + n;
+    a_node = tmem[n];
+    b_indx = mov2[a_indx];
+    if (!eql(a_node, air)) {
+      for (b_slot = 0; b_slot < 3; ++b_slot) {
+        t_indx[b_slot] = get_dist(a_node, b_slot) + a_indx;
+        t_indx[b_slot] = t_indx[b_slot] < 2048 ? mov2[t_indx[b_slot]] : t_indx[b_slot];
+      }
+      snet[b_indx] = new_node(get_kind(a_node),
+        (i64)t_indx[0] - (i64)b_indx, get_slot(a_node, 0),
+        (i64)t_indx[1] - (i64)b_indx, get_slot(a_node, 1),
+        (i64)t_indx[2] - (i64)b_indx, get_slot(a_node, 2));
+    /*} else {*/
+      /*mov2[a_indx] = 0xFFFFFFFF;*/
+    }
+  }
+  __syncthreads();
+
+  /*// Performs annihilation and duplication reductions.*/
+  for (n = 0; n < 2; ++n) {
+    a_indx = ti * 2 + n;
+    a_node = snet[a_indx];
+    tmem[n * 3 + 0] = a_node;
+    tmem[n * 3 + 1] = air;
+    tmem[n * 3 + 2] = air;
+    if (!eql(a_node, air)) {
+      b_indx = get_dist(a_node, 0) + a_indx;
+      b_node = snet[b_indx];
+      rdx_ty = get_redex_type(a_node, b_node);
+      if (rdx_ty == 2) {
+        tmem[n * 3 + 0] = to_wire(new_node(0, 0, 0, 1, 0, 2, 0));
+        tmem[n * 3 + 1] = new_node(get_kind(b_node), get_dist(a_node, 1) - 1, get_slot(a_node, 1), (i64)(b_indx+1) - (i64)(a_indx+1), 1, (i64)(b_indx+2) - (i64)(a_indx+1), 1);
+        tmem[n * 3 + 2] = new_node(get_kind(b_node), get_dist(a_node, 2) - 2, get_slot(a_node, 2), (i64)(b_indx+1) - (i64)(a_indx+2), 2, (i64)(b_indx+2) - (i64)(a_indx+2), 2);
+      }
+      if (rdx_ty == 1) {
+        tmem[n * 3 + 0] = to_wire(new_node(0, 0, 0, (i64)b_indx - (i64)a_indx + get_dist(b_node, 1), get_slot(b_node, 1), (i64)b_indx - (i64)a_indx + get_dist(b_node, 2), get_slot(b_node, 2)));
+      }
+    }
+  }
+  __syncthreads();
+  for (n = 0; n < 2; ++n) {
+    a_indx = ti * 2 + n;
+    a_node = tmem[n * 3 + 0];
+    if (!eql(a_node, air)) {
+      snet[a_indx + 0] = tmem[n * 3 + 0];
+      if (!eql(tmem[n * 3 + 1], air)) {
+        snet[a_indx + 1] = tmem[n * 3 + 1];
+        snet[a_indx + 2] = tmem[n * 3 + 2];
+      }
+    }
+  }
+  __syncthreads();
+
+  /*// Connects linked ports and cleans unused space.*/
+  for (n = 0; n < 2; ++n) {
+    a_indx = ti * 2 + n;
+    a_node = snet[a_indx];
+    if (is_wire(a_node)) {
+      tmem[n] = air;
+    } else {
+      tmem[n] = a_node;
+      if (!eql(a_node, air)) {
+        for (a_slot = 0; a_slot < 3; ++a_slot) {
+          b_indx = get_dist(a_node, a_slot) + a_indx;
+          b_slot = get_slot(a_node, a_slot);
+          b_node = snet[b_indx];
+          while (is_wire(b_node)) {
+            b_indx = get_dist(b_node, b_slot) + b_indx;
+            b_slot = get_slot(b_node, b_slot);
+            b_node = snet[b_indx];
+          }
+          tmem[n] = set_port(tmem[n], a_slot, b_indx - a_indx, b_slot);
+        }
+      }
+    }
+  }
+  __syncthreads();
+  for (n = 0; n < 2; ++n) {
+    snet[ti*2+n] = tmem[n];
+    if (spos[ti*2+n] != 0xFFFFFFFF) {
+      spos[ti*2+n] = mov2[spos[ti*2+n]];
+    }
+  }
+  __syncthreads();
+}
+
+// Reduces all blocks in parallel.
+__global__ void reduce_blocks(u64 *gnet, u64 *gpos) {
+  __shared__ u64 snet[2048];
+  __shared__ u64 spos[2048];
+
   u64 ti = threadIdx.x;
   u64 gi = blockIdx.x * blockDim.x + ti;
 
-  // 1. Loads a slice of 2048 nodes (16kb) from global memory to the shared memory.
-  //    (There are 1024 threads. Each one is responsible for 2 nodes (128 bits).)
+  // Loads a block of 2048 nodes (16kb) from global memory.
   for (u64 n = 0; n < 2; ++n) {
-    shared_mem[ti * 2 + n] = thread_mem[n] = global_mem[gi * 2 + n];
+    snet[ti*2+n] = gnet[gi*2+n];
+    spos[ti*2+n] = gpos[gi*2+n];
   }
-
   __syncthreads();
+
+  // Performs a few parallel reductions.
+  for (u64 n = 0; n < 256; ++n) {
+    reduce_block(snet, spos);
+  }
   
-  // 2. Allocates the space required for duplications by moving nodes.
-  // 2a. Computes the destination index of each node with a scansum of their
-  //     space needs (inactive nodes = 1, ani nodes = 0, dup nodes = 3);
-  for (u64 n = 0; n < 2; ++n) {  
-    u64 a_indx = ti * 2 + n;
-    u64 a_node = thread_mem[n];
-    u64 b_indx = get_dist(a_node, 0) + a_indx;
-    u64 b_node = shared_mem[b_indx];
-    new_indx[a_indx] = eql(a_node, air) ? 0 : get_redex_type(a_node, b_node) == 2 ? 3 : 1;
-  }
-  scansum(new_indx, 2048);
-  __syncthreads();
+  // Writes results back to global memory
   for (u64 n = 0; n < 2; ++n) {
-    u64 a_indx = ti * 2 + n;
-    shared_mem[a_indx] = air;
-  }
-  __syncthreads();
-  for (u64 n = 0; n < 2; ++n) {
-    u64 a_indx = ti * 2 + n;
-    u64 a_node = thread_mem[n];
-    u64 t_indx = new_indx[a_indx];
-    if (!eql(a_node, air)) {
-      u64 x_t_indx = new_indx[get_dist(a_node, 0) + a_indx];
-      u64 y_t_indx = new_indx[get_dist(a_node, 1) + a_indx];
-      u64 z_t_indx = new_indx[get_dist(a_node, 2) + a_indx];
-      shared_mem[t_indx] = new_node(get_kind(a_node),
-        (i64)x_t_indx - (i64)t_indx, get_slot(a_node, 0),
-        (i64)y_t_indx - (i64)t_indx, get_slot(a_node, 1),
-        (i64)z_t_indx - (i64)t_indx, get_slot(a_node, 2));
-    }
-  }
-
-  // 3. Rewrites reducible nodes.
-  //    TODO: is it possible to perform atomic links?
-  for (u64 n = 0; n < 4; ++n) {
-    u64 a_indx = ti * 4 + n;
-    u64 a_node = thread_mem[n];
-    u64 b_indx = get_dist(a_node, 0) + a_indx;
-    if (b_indx < 2048) {
-      u64 b_node = shared_mem[b_indx];
-      // ...
-    }
-  }
-
-  // 4. Movement rules.
-  // TODO
-
-  // 5. Writes results back to global memory
-  for (u64 n = 0; n < 2; ++n) {
-    global_mem[gi * 2 + n] = shared_mem[ti * 2 + n];
+    gnet[gi*2+n] = snet[ti*2+n];
+    gpos[gi*2+n] = spos[ti*2+n];
   }
 }
 
@@ -496,24 +585,29 @@ int main(void) {
   thrust::host_vector<u64> h_net(4096);
   thrust::fill(h_net.begin(), h_net.begin() + h_net.size(), air);
   for (int i = 0; i < ex.size(); ++i) h_net[i] = ex[i];
+  h_net[128] = dot;
+  thrust::host_vector<u64> h_pos(4096);
+  thrust::sequence(h_pos.begin(), h_pos.end());
 
-  reduce_pass(&h_net[0], h_net.size());
-  reduce_pass(&h_net[0], h_net.size());
-  reduce_pass(&h_net[0], h_net.size());
-
-  print_net(&h_net[0], h_net.size(), true, true, true);
+  /*for (u64 i = 0; i < 3; ++i) {*/
+    /*reduce_pass(&h_net[0], h_net.size());*/
+  /*}*/
+  print_net(&h_net[0], h_net.size() / 8, false, true, true);
 
   // Sends to GPU
   thrust::device_vector<u64> d_net = h_net;
+  thrust::device_vector<u64> d_pos = h_pos;
 
   // Reduces
-  reduce_slice<<<1,1024>>>(thrust::raw_pointer_cast(&d_net[0]));
-  
+  reduce_blocks<<<1,1024>>>(thrust::raw_pointer_cast(&d_net[0]), thrust::raw_pointer_cast(&d_pos[0]));
+
   // Sends to CPU & prints
   h_net = d_net;
-  print_net(&h_net[0], h_net.size(), true, true, true);
-  /*print_nums(&h_net[0], h_net.size());*/
+  print_net(&h_net[0], h_net.size() / 8, false, true, true);
 
+  // Tests if it tracked the dot position correctly.
+  h_pos = d_pos;
+  std::cout << "Dot position: " << h_pos[128] << " (" << (eql(h_net[h_pos[128]], dot) ? "correct" : "wrong") << ")" << std::endl;
 
   return 0;
 }
