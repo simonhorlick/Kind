@@ -5,6 +5,8 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <unistd.h>
+#include <time.h>
 
 #include <thrust/host_vector.h>
 #include <thrust/device_vector.h>
@@ -15,6 +17,11 @@ typedef  int64_t i64;
 typedef uint64_t u32;
 typedef uint64_t u64;
 typedef double   f64;
+
+void clear() {
+  printf("\e[1;1H\e[2J");
+  usleep(1000000 / 2);
+}
 
 // ::::::::::
 // :: Node ::
@@ -373,10 +380,6 @@ void print_nums(u64 *vec, u64 len) {
 // :: GPU ::
 // :::::::::
 
-/*struct is_node : public thrust::unary_function<u64,u64> {*/
-  /*__host__ __device__ u64 operator()(u64 node) { return eql(node, air) ? 0 : 1; }*/
-/*};*/
-
 // Adapted from: https://www.mimuw.edu.pl/~ps209291/kgkp/slides/scan.pdf
 // Note: maximum length = threads_per_block * 2
 __device__ void scansum(u32 *data, u64 len) {
@@ -444,7 +447,7 @@ __device__ void move_nodes(u64 *snet, u32 *mov2) {
 // Reduces a block of 2048 nodes on shared memory.
 // `snet` is the block with the input nodes that will be reduced.
 // `spos` is the global position of input nodes, which will be updated.
-__device__ void reduce_block(u64 *snet, u32 *spos, u32 *smem) {
+__device__ void reduce_block(u64 *snet, u32 *spos, u32 *smem, u64* gsta, u64 offset, u64 pass) {
   u64 tmem[6];
   u64 a_indx, a_slot, a_node;
   u64 b_indx, b_slot, b_node;
@@ -454,7 +457,6 @@ __device__ void reduce_block(u64 *snet, u32 *spos, u32 *smem) {
   for (n = 0; n < 2; ++n) {
     smem[ti * 2 + n] = 0;
   }
-  __syncthreads();
   __syncthreads();
 
   // Computes the dest index of each node by scan-summing their space neds.
@@ -474,12 +476,14 @@ __device__ void reduce_block(u64 *snet, u32 *spos, u32 *smem) {
   __syncthreads();
 
   // Checks if enough space
-  if (smem[2047] > 2048) {
+  if (smem[2047] >= 2048) {
+    /*if (ti == 0) printf("full\n");*/
     return;
   }
 
   // Moves nodes to their target locations.
   move_nodes(snet, smem);
+  __syncthreads();
 
   // Performs annihilation and duplication reductions.
   for (n = 0; n < 2; ++n) {
@@ -494,13 +498,15 @@ __device__ void reduce_block(u64 *snet, u32 *spos, u32 *smem) {
         b_node = snet[b_indx];
         if (!has_externals(a_node, a_indx, 2048) && !has_externals(b_node, b_indx, 2048)) {
           rdx_ty = get_redex_type(a_node, b_node);
+          if (rdx_ty == 1) {
+            tmem[n * 3 + 0] = to_wire(new_node(0, 0, 0, (i64)b_indx - (i64)a_indx + get_dist(b_node, 1), get_slot(b_node, 1), (i64)b_indx - (i64)a_indx + get_dist(b_node, 2), get_slot(b_node, 2)));
+            atomicAdd((unsigned long long int*)&gsta[0], (unsigned long long int)1);
+          }
           if (rdx_ty == 2) {
             tmem[n * 3 + 0] = to_wire(new_node(0, 0, 0, 1, 0, 2, 0));
             tmem[n * 3 + 1] = new_node(get_kind(b_node), get_dist(a_node, 1) - 1, get_slot(a_node, 1), (i64)(b_indx+1) - (i64)(a_indx+1), 1, (i64)(b_indx+2) - (i64)(a_indx+1), 1);
             tmem[n * 3 + 2] = new_node(get_kind(b_node), get_dist(a_node, 2) - 2, get_slot(a_node, 2), (i64)(b_indx+1) - (i64)(a_indx+2), 2, (i64)(b_indx+2) - (i64)(a_indx+2), 2);
-          }
-          if (rdx_ty == 1) {
-            tmem[n * 3 + 0] = to_wire(new_node(0, 0, 0, (i64)b_indx - (i64)a_indx + get_dist(b_node, 1), get_slot(b_node, 1), (i64)b_indx - (i64)a_indx + get_dist(b_node, 2), get_slot(b_node, 2)));
+            atomicAdd((unsigned long long int*)&gsta[1], (unsigned long long int)1);
           }
         }
       }
@@ -549,13 +555,13 @@ __device__ void reduce_block(u64 *snet, u32 *spos, u32 *smem) {
 
   for (n = 0; n < 2; ++n) {
     snet[ti*2+n] = tmem[n];
-    spos[ti*2+n] = blockIdx.x * blockDim.x * 2 + smem[spos[ti*2+n] - blockIdx.x * blockDim.x * 2];
+    spos[ti*2+n] = offset + smem[spos[ti*2+n] - offset];
   }
   __syncthreads();
 }
 
 // Moves nodes around in order to minimize their summed distances
-__device__ void chill_block(u64 *snet, u32 *spos, u32 *smem) {
+__device__ void chill_block(u64 *snet, u32 *spos, u32 *smem, u64 offset) {
   u64 tmem[2];
   u64 a_indx, b_indx, n;
   u64 ti = threadIdx.x;
@@ -580,12 +586,6 @@ __device__ void chill_block(u64 *snet, u32 *spos, u32 *smem) {
     __syncthreads();
   }
 
-  /*a_indx = smem[ti * 2 + 0];*/
-  /*b_indx = smem[ti * 2 + 1];*/
-  /*smem[ti * 2 + 0] = b_indx;*/
-  /*smem[ti * 2 + 1] = a_indx;*/
-  /*__syncthreads();*/
-
   // Inverses smem, so that it maps source index to target index
   // smem = 7 3 1 0 2 5 4 6 (initially)
   // smem = 3 2 4 1 6 5 7 0 (inversed)
@@ -604,13 +604,27 @@ __device__ void chill_block(u64 *snet, u32 *spos, u32 *smem) {
 
   // Saves data
   for (n = 0; n < 2; ++n) {
-    spos[ti*2+n] = blockIdx.x * blockDim.x * 2 + smem[spos[ti*2+n] - blockIdx.x * blockDim.x * 2];
+    spos[ti*2+n] = offset + smem[spos[ti*2+n] - offset];
   }
   __syncthreads();
+
+/*RUIM ti=976 spos[1952]=2048 offset=0*/
+/*RUIM ti=977 spos[1954]=2048 offset=0*/
+/*RUIM ti=978 spos[1956]=2048 offset=0*/
+/*RUIM ti=979 spos[1958]=2048 offset=0*/
+/*RUIM ti=980 spos[1960]=2048 offset=0*/
+/*RUIM ti=981 spos[1962]=2048 offset=0*/
+/*RUIM ti=982 spos[1964]=2048 offset=0*/
+/*RUIM ti=983 spos[1966]=2048 offset=0*/
+/*RUIM ti=984 spos[1968]=2048 offset=0*/
+/*RUIM ti=985 spos[1970]=2048 offset=0*/
+/*RUIM ti=986 spos[1972]=2048 offset=0*/
+/*RUIM ti=987 spos[1974]=2048 offset=0*/
+/*RUIM ti=988 spos[1976]=2048 offset=0*/
 }
 
 // Reduces all blocks in parallel.
-__global__ void reduce_blocks(u64 *gnet, u64 *gpos, u64 local_passes) {
+__global__ void reduce_blocks(u64 *gnet, u64 *gpos, u64* gsta, u64 local_passes, u64 offset, u64 global_pass) {
   __shared__ u64 snet[2048];
   __shared__ u32 spos[2048];
   __shared__ u32 smem[2048];
@@ -627,12 +641,15 @@ __global__ void reduce_blocks(u64 *gnet, u64 *gpos, u64 local_passes) {
 
   // Performs a few parallel reductions.
   for (u64 pass = 0; pass < local_passes; ++pass) {
-    reduce_block(snet, spos, smem);
+    reduce_block(snet, spos, smem, gsta, blockIdx.x * blockDim.x * 2 + offset, global_pass);
+    for (u64 k = 0; k < 4; ++k) {
+      chill_block(snet, spos, smem, blockIdx.x * blockDim.x * 2 + offset);
+    }
+    __syncthreads();
   }
-  for (u64 pass = 0; pass < local_passes * 8; ++pass) {
-    chill_block(snet, spos, smem);
-  }
-  __syncthreads();
+  /*for (u64 pass = 0; pass < local_passes * 8; ++pass) {*/
+    /*__syncthreads();*/
+  /*}*/
 
   // Writes results back to global memory.
   for (u64 n = 0; n < 2; ++n) {
@@ -642,94 +659,70 @@ __global__ void reduce_blocks(u64 *gnet, u64 *gpos, u64 local_passes) {
 }
 
 // Reconnects cross-block links.
-__global__ void adjust_cross_block_links(u64 *gnet, u64 *gpos) {
-  u64 gi = blockIdx.x * blockDim.x + threadIdx.x;
-  for (u64 n = 0; n < 2; ++n) {
-    u64 a_indx = gi*2+n;
-    u64 a_node = gnet[a_indx];
-    if (!eql(a_node, air)) {
-      for (u64 a_slot = 0; a_slot < 3; ++a_slot) {
-        u64 i_indx = gi * 2 - (gi * 2 % 2048);
-        u64 b_indx = get_dist(a_node, a_slot) + a_indx;
-        u64 b_slot = get_slot(a_node, a_slot);
-        if (b_indx < i_indx || b_indx >= i_indx + 2048) {
-          a_node = set_port(a_node, a_slot, gpos[b_indx] - a_indx, b_slot);
-        }
+__global__ void adjust_cross_block_links(u64 *gnet, u64 *gpos, u64 offset) {
+  u64 a_indx = blockIdx.x * blockDim.x + threadIdx.x;
+  u64 a_node = gnet[a_indx];
+  if (!eql(a_node, air)) {
+    for (u64 a_slot = 0; a_slot < 3; ++a_slot) {
+      i64 i_indx = (i64)a_indx - (i64)((a_indx + offset) % 2048);
+      i64 j_indx = i_indx + 2048;
+      u64 b_indx = get_dist(a_node, a_slot) + a_indx;
+      u64 b_slot = get_slot(a_node, a_slot);
+      if ((i64)b_indx < i_indx || (i64)b_indx >= j_indx) {
+        a_node = set_port(a_node, a_slot, gpos[b_indx] - a_indx, b_slot);
       }
-      gnet[gi*2+n] = a_node;
     }
+    gnet[a_indx] = a_node;
   }
 }
 
 // Compacts net, removing gaps and expanding as needed
-__global__ void compact(u64 *src, u64 *dst, u64 *gloc, u64 expand) {
-  u64 src_indx = blockIdx.x * blockDim.x + threadIdx.x;
-  u64 dst_indx = (src_indx + gloc[src_indx / 2048] - (src_indx / 2048 * 2048)) * expand;
-  u64 node = src[src_indx]; 
-  if (!eql(node, air)) {
-    u64 x_src_indx = get_dist(node, 0) + src_indx;
-    u64 x_dst_indx = (x_src_indx + gloc[x_src_indx / 2048] - (x_src_indx / 2048 * 2048)) * expand;
-    u64 y_src_indx = get_dist(node, 1) + src_indx;
-    u64 y_dst_indx = (y_src_indx + gloc[y_src_indx / 2048] - (y_src_indx / 2048 * 2048)) * expand;
-    u64 z_src_indx = get_dist(node, 2) + src_indx;
-    u64 z_dst_indx = (z_src_indx + gloc[z_src_indx / 2048] - (z_src_indx / 2048 * 2048)) * expand;
-    dst[dst_indx] = new_node(get_kind(node),
-      (i64)x_dst_indx - (i64)dst_indx, get_slot(node, 0),
-      (i64)y_dst_indx - (i64)dst_indx, get_slot(node, 1),
-      (i64)z_dst_indx - (i64)dst_indx, get_slot(node, 2));
+__global__ void compact(u64 *src_gnet, u64 *dst_gnet, u64 *gmov) {
+  u64 a_indx = blockIdx.x * blockDim.x + threadIdx.x;
+  u64 a_node = src_gnet[a_indx]; 
+  u64 A_indx = gmov[a_indx];
+  if (!eql(a_node, air)) {
+    u64 x_indx = get_dist(a_node, 0) + a_indx;
+    u64 X_indx = gmov[x_indx];
+    u64 y_indx = get_dist(a_node, 1) + a_indx;
+    u64 Y_indx = gmov[y_indx];
+    u64 z_indx = get_dist(a_node, 2) + a_indx;
+    u64 Z_indx = gmov[z_indx];
+    dst_gnet[A_indx] = new_node(get_kind(a_node),
+      (i64)X_indx - (i64)A_indx, get_slot(a_node, 0),
+      (i64)Y_indx - (i64)A_indx, get_slot(a_node, 1),
+      (i64)Z_indx - (i64)A_indx, get_slot(a_node, 2));
   }
 }
 
-
-// Gets number of nodes in each block
-__global__ void get_block_max_index(u64 *gnet, u64 *gmax) {
-  __shared__ u32 smem[2048];
-
-  u64 ti = threadIdx.x;
-  u64 gi = blockIdx.x * blockDim.x + threadIdx.x;
-
-  for (u64 n = 0; n < 2; ++n) {
-    smem[ti*2+n] = eql(gnet[gi*2+n],air) ? 0 : ti*2+n;
-  }
-  __syncthreads();
-
-  for (u64 l = 0; l <= 10; ++l) {
-    if (ti < (1024 >> l)) {
-      u64 i = ti * (2 << l);
-      u64 j = i + (2 << l >> 1);
-      smem[i] = max(smem[i], smem[j]);
-    }
-    __syncthreads();
-  }
-
-  if (ti == 0) {
-    gmax[gi] = smem[0] + 1;
-  }
-  __syncthreads();
-}
+struct is_node : public thrust::unary_function<u64,u64> {
+  __host__ __device__ u64 operator()(u64 node) { return eql(node, air) ? 0 : 2; }
+};
 
 std::vector<u64> parallel_reduce(u64 *net, u64 len) {
-  const u64 global_passes = 36;
-  const u64 local_passes = 16;
+  const u64 global_passes = 50;
+  const u64 local_passes = 256;
 
-  const u64 max_nodes = 2048 * 2;
+  const u64 max_nodes = 2048 * 8;
   const u64 nodes_per_block = 2048;
-  const u64 total_blocks = max_nodes / nodes_per_block;
   const u64 threads_per_block = 1024;
 
   // Allocates memory on the CPU
   thrust::host_vector<u64> h_net(max_nodes);
   thrust::host_vector<u64> h_pos(max_nodes);
-  thrust::host_vector<u64> h_loc(total_blocks);
+  thrust::host_vector<u64> h_mov(max_nodes);
+  thrust::host_vector<u64> h_sta(4);
 
   // Allocates memory on the GPU
   thrust::device_vector<u64> d_net(max_nodes);
   thrust::device_vector<u64> d_tmp(max_nodes);
   thrust::device_vector<u64> d_pos(max_nodes);
-  thrust::device_vector<u64> d_loc(total_blocks);
+  thrust::device_vector<u64> d_mov(max_nodes);
+  thrust::device_vector<u64> d_sta(4);
 
   // Builds data on the CPU
   thrust::fill(h_net.begin(), h_net.begin() + h_net.size(), air);
+  thrust::fill(h_sta.begin(), h_sta.begin() + h_sta.size(), 0);
   for (int i = 0; i < len; ++i) {
     h_net[i] = net[i];
   }
@@ -737,48 +730,81 @@ std::vector<u64> parallel_reduce(u64 *net, u64 len) {
   // Sends data to the GPU
   d_net = h_net;
   d_pos = h_pos;
-
+  d_sta = h_sta;
+                            
   for (u64 pass = 0; pass < global_passes; ++pass) {
+    u64 offset = pass & 1 ? 1024 : 0;
+
+    // Prints state
+    
+    if (pass == 0) {
+      clear();
+      std::cout << "Init (pass " << pass << "):" << std::endl;
+      h_net = d_net;
+      h_sta = d_sta;
+      print_net(&h_net[0], h_net.size(), false, true, true);
+      /*print_nums(&h_sta[0], h_sta.size());*/
+    }
+
     // Cleans position buffer
     thrust::sequence(d_pos.begin(), d_pos.end());
 
     // Reduces each block in isolation
-    reduce_blocks<<<max_nodes / nodes_per_block, threads_per_block>>>(
-      thrust::raw_pointer_cast(&d_net[0]),
-      thrust::raw_pointer_cast(&d_pos[0]),
-      local_passes);
+    reduce_blocks<<<(max_nodes / nodes_per_block) - (pass&1), threads_per_block>>>(
+      thrust::raw_pointer_cast(&d_net[offset]),
+      thrust::raw_pointer_cast(&d_pos[offset]),
+      thrust::raw_pointer_cast(&d_sta[offset]),
+      local_passes,
+      offset,
+      pass);
 
     // Adjust cross-blocks links
-    adjust_cross_block_links<<<max_nodes / nodes_per_block, threads_per_block>>>(
+    adjust_cross_block_links<<<max_nodes / threads_per_block, threads_per_block>>>(
       thrust::raw_pointer_cast(&d_net[0]),
-      thrust::raw_pointer_cast(&d_pos[0]));
+      thrust::raw_pointer_cast(&d_pos[0]),
+      offset);
+
+    // Prints state
+    /*if (pass % 64 == 0) {*/
+      /*clear();*/
+      /*std::cout << "After reduction (on pass " << pass << "):" << std::endl;*/
+      /*h_net = d_net;*/
+      /*h_sta = d_sta;*/
+      /*print_net(&h_net[0], h_net.size(), false, true, true);*/
+      /*print_nums(&h_sta[0], h_sta.size());*/
+    /*}*/
 
     // Gets the new location of each block
-    get_block_max_index<<<max_nodes / nodes_per_block, threads_per_block>>>(
-      thrust::raw_pointer_cast(&d_net[0]),
-      thrust::raw_pointer_cast(&d_loc[0]));
-    thrust::exclusive_scan(d_loc.begin(), d_loc.end(), d_loc.begin());
+    /*get_block_max_index<<<max_nodes / nodes_per_block, threads_per_block>>>(*/
+      /*thrust::raw_pointer_cast(&d_net[0]),*/
+      /*thrust::raw_pointer_cast(&d_loc[0]));*/
+    /*thrust::exclusive_scan(d_loc.begin(), d_loc.end(), d_loc.begin());*/
+    /*h_pos = d_pos;*/
+    /*print_nums(&h_pos[0], h_pos.size());*/
 
     // Compacts net
+    thrust::fill(d_mov.begin(), d_mov.end(), 0);
+    thrust::transform_exclusive_scan(d_net.begin(), d_net.end(), d_mov.begin(), is_node(), 0, thrust::plus<u64>());
     thrust::fill(d_tmp.begin(), d_tmp.end(), air);
-    compact<<<max_nodes / 256, 256>>>(
+    compact<<<max_nodes / threads_per_block, threads_per_block>>>(
       thrust::raw_pointer_cast(&d_net[0]),
       thrust::raw_pointer_cast(&d_tmp[0]),
-      thrust::raw_pointer_cast(&d_loc[0]),
-      1);
+      thrust::raw_pointer_cast(&d_mov[0]));
     d_net = d_tmp;
 
-    // DEBUG: Sends to CPU & prints
-    h_net = d_net;
-    std::cout << "After pass " << pass << ":" << std::endl;
-    print_net(&h_net[0], h_net.size(), false, true, true);
+    // Prints state
+    if (pass % 1 == 0) {
+      clear();
+      std::cout << "After compaction (on pass " << pass << "):" << std::endl;
+      h_net = d_net;
+      h_sta = d_sta;
+      print_net(&h_net[0], h_net.size(), false, true, true);
+      print_nums(&h_sta[0], h_sta.size());
+    }
   }
 
-  // Sends data to the CPU
-  h_net = d_net;
-  h_loc = d_loc;
-
   // Builds result vector
+  h_net = d_net;
   std::vector<u64> result;
   for (int i = 0; i < max_nodes; ++i) {
     result.push_back(h_net[i]);
@@ -791,12 +817,9 @@ std::vector<u64> parallel_reduce(u64 *net, u64 len) {
 // :: Main ::
 // ::::::::::
 
-struct is_node : public thrust::unary_function<u64,u64> {
-  __host__ __device__ u64 operator()(u64 node) { return eql(node, air) ? 0 : 1; }
-};
-
 /*std::vector<u64> net = {0x0028000a00f08000,0x0028001200b8803b,0x0028001a006c7fff,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217fe5,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0017fd26000e8001,0x00280012002a7fff,0x00280012001c7fff,0x00080015fff47fff,0x0007fff200108001,0x0027fff6000c8001,0x0027fff600068001,0x00280015fffe7fff,0x0017ffc5fff47fff,0x0017ff9600008001,0x0027fffa00018000,0x0017ff6a00048001,0x0027fff600017fff,0x0027fc5200057fc4,0x0017fffa00048001,0x0027fff600017fff};*/
-std::vector<u64> net = {0x0028000a03788000,0x00280012034080dd,0x0028001a02f47fff,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a02897ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a021d7ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a01b17ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a01457ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a00d97ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a006d7ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217fe5,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217fca,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217faf,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217f94,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217f79,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217f5e,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217f43,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0017f306000e8001,0x00280012002a7fff,0x00280012001c7fff,0x00080015fff47fff,0x0007fff200108001,0x0027fff6000c8001,0x0027fff600068001,0x00280015fffe7fff,0x0017ffc5fff47fff,0x0017ff9600008001,0x0027fffa00018000,0x0017ff6a00048001,0x0027fff600017fff,0x0027f23200057f22,0x0017fffa00048001,0x0027fff600017fff};
+/*std::vector<u64> net = {0x0028000a03788000,0x00280012034080dd,0x0028001a02f47fff,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a02897ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a021d7ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a01b17ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a01457ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a00d97ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a006d7ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217fe5,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217fca,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217faf,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217f94,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217f79,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217f5e,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217f43,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0017f306000e8001,0x00280012002a7fff,0x00280012001c7fff,0x00080015fff47fff,0x0007fff200108001,0x0027fff6000c8001,0x0027fff600068001,0x00280015fffe7fff,0x0017ffc5fff47fff,0x0017ff9600008001,0x0027fffa00018000,0x0017ff6a00048001,0x0027fff600017fff,0x0027f23200057f22,0x0017fffa00048001,0x0027fff600017fff};*/
+std::vector<u64> net = {0x0028000a00048000,0x00280012074d7fff,0x00280012073c7fff,0x00281672072c7fff,0x0028001a03408166,0x0028001a02f47fff,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a02897ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a021d7ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a01b17ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a01457ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a00d97ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0028001a006d7ff8,0x0008001a00207fff,0x0007fff200108001,0x0027fff200088001,0x0027fff600048003,0x0017ffe5fffd8001,0x0017ffc9fffc8002,0x0027ffd600068001,0x0027ffe5fffe7fff,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217fe5,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217fca,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217faf,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217f94,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217f79,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217f5e,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00217f43,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0008001a00517f30,0x0007fff200068011,0x0017fff200048010,0x0017fff600088001,0x0027fff6000a8001,0x00280015fffa7fff,0x00080015fff87fff,0x0007fff2001c8001,0x0027fff200248001,0x0027fff2001c8001,0x0027fff600108001,0x0027fff600068001,0x00280015fffe7fff,0x0028001200087fff,0x0017ff95fff07fff,0x0017ffe6000a8001,0x0017ff9a00067fff,0x0017ff75fff97fff,0x0027ff0200067fef,0x0017fffa00018000,0x0008001a00217fec,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001a00217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0008001200217ff8,0x0007fff200088001,0x0027fff200108002,0x0017ffe6000c8004,0x0027ffe6000e8001,0x0028001a000a7fff,0x0057ffc5fff47fff,0x0027ffc5fff57ffe,0x0017ff8600008001,0x0027fffa00018000,0x0027e9aa00047e99,0x0008001a00197fff,0x0007fff600108001,0x0027fff2000c8001,0x0027fff600008001,0x0027fff600028001,0x0017ffd5fff27fff,0x0008001a00197ffa,0x0007fff600108001,0x0027fff2000c8001,0x0027fff600008001,0x0027fff600028001,0x0017ffd5fff27fff,0x0008001a00197ffa,0x0007fff600108001,0x0027fff2000c8001,0x0027fff600008001,0x0027fff600028001,0x0017ffd5fff27fff,0x0008001a00197ffa,0x0007fff600108001,0x0027fff2000c8001,0x0027fff600008001,0x0027fff600028001,0x0017ffd5fff27fff,0x0008001a00197ffa,0x0007fff600108001,0x0027fff2000c8001,0x0027fff600008001,0x0027fff600028001,0x0017ffd5fff27fff,0x0008001a00197ffa,0x0007fff600108001,0x0027fff2000c8001,0x0027fff600008001,0x0027fff600028001,0x0017ffd5fff27fff,0x0008001a00197ffa,0x0007fff600108001,0x0027fff2000c8001,0x0027fff600008001,0x0027fff600028001,0x0017ffd5fff27fff,0x0008001a00197ffa,0x0007fff600108001,0x0027fff2000c8001,0x0027fff600008001,0x0027fff600028001,0x0017ffd5fff27fff,0x0008001a00197ffa,0x0007fff600108001,0x0027fff2000c8001,0x0027fff600008001,0x0027fff600028001,0x0017ffd5fff27fff,0x0008001a00197ffa,0x0007fff600108001,0x0027fff2000c8001,0x0027fff600008001,0x0027fff600028001,0x0017ffd5fff27fff,0x0008001a00197ffa,0x0007fff600108001,0x0027fff2000c8001,0x0027fff600008001,0x0027fff600028001,0x0017ffd5fff27fff,0x0008001a00197ffa,0x0007fff600108001,0x0027fff2000c8001,0x0027fff600008001,0x0027fff600028001,0x0017ffd5fff27fff,0x0008001a00197ffa,0x0007fff600108001,0x0027fff2000c8001,0x0027fff600008001,0x0027fff600028001,0x0017ffd5fff27fff,0x0008001a00197ffa,0x0007fff600108001,0x0027fff2000c8001,0x0027fff600008001,0x0027fff600028001,0x0017ffd5fff27fff,0x0008001a00197ffa,0x0007fff600108001,0x0027fff2000c8001,0x0027fff600008001,0x0027fff600028001,0x0017ffd5fff27fff,0x0008001200197ffa,0x0007fff600108001,0x0027fff2000c8001,0x0027fff600008001,0x0027fff600028001,0x0017ffd5fff27fff,0x0017ffa600008001,0x0027fff600008001,0x0027fffa00018000,0x0017e35600008001,0x0027fffa00048001,0x0027fff600017fff,0x0017e31600008001,0x0027fff600008001,0x0027fffa00018000,0x0017e2d600008001,0x0027fffa00018000};
 
 int main(void) {
   /*std::cout << (u64)((u64)10 + ((i64)(-4))) << std::endl;*/
@@ -816,3 +839,23 @@ int main(void) {
 
 
 // TODO: when  
+
+/*========= CUDA-MEMCHECK*/
+/*========= Invalid __shared__ read of size 8*/
+/*=========     at 0x000051b0 in /home/v/cuda/main.cu:553:reduce_blocks(unsigned long*, unsigned long*, unsigned long, unsigned long)*/
+/*=========     by thread (0,0,0) in block (0,0,0)*/
+/*=========     Address 0x030480c0 is out of bounds*/
+/*=========     Device Frame:/home/v/cuda/main.cu:553:reduce_blocks(unsigned long*, unsigned long*, unsigned long, unsigned long) (reduce_blocks(unsigned long*, unsigned long*, unsigned long, unsigned long) : 0x51b0)*/
+/*=========     Saved host backtrace up to driver entry point at kernel launch time*/
+/*=========     Host Frame:/usr/lib/x86_64-linux-gnu/libcuda.so.1 (cuLaunchKernel + 0x2c5) [0x26a155]*/
+/*=========     Host Frame:./main [0x25af9]*/
+/*=========     Host Frame:./main [0x25b87]*/
+/*=========     Host Frame:./main [0x5bed5]*/
+/*=========     Host Frame:./main [0xcef4]*/
+/*=========     Host Frame:./main [0xbec1]*/
+/*=========     Host Frame:./main [0xbf15]*/
+/*=========     Host Frame:./main [0xb91b]*/
+/*=========     Host Frame:./main [0xbcf8]*/
+/*=========     Host Frame:/lib/x86_64-linux-gnu/libc.so.6 (__libc_start_main + 0xe7) [0x21b97]*/
+/*=========     Host Frame:./main [0x8eba]*/
+

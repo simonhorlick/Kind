@@ -524,8 +524,23 @@
 //.inc_test [inc = (Cat.256 -Bits (inc 16))] [cpy = (cpy 16)] # (cpy (inc (o (o (o (o (o (o (o (o (o (o (o (o (o (o (o (o e))))))))))))))))))
 .inc_test [inc = (Cat.256 -Bits (inc 16))] # (inc (o (o (o (o (o (o (o (o (o (o (o (o (o (o (o (o e)))))))))))))))))
 
+
+.id [x] x
+.f0 (id id)
+.f1 (f0 f0)
+.f2 (f1 f1)
+.f3 (f2 f2)
+.f4 (f3 f3)
+.f5 (f4 f4)
+.f6 (f5 f5)
+.f7 (f6 f6)
+.f8 (f7 f7)
+.f9 (f8 f8)
+.fA (f9 f9)
+
 .main   inc_test
-.main   [F = (Cat.4 -Bool #slow_not)] # (F true)
+.main   [F = (Cat.mul Cat.32 Cat.256 -Bool #slow_not)] # (F true)
+.main (inc_test [x] true [x] false false)
 .stdlib main
   
 //.main (MUL (SUCC (SUCC ZERO)) (SUCC (SUCC ZERO)))
