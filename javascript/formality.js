@@ -475,7 +475,7 @@ const is_at_level = ([ctor, term], at_level, depth = 0, level = 0) => {
     case "App": return is_at_level(term.func, at_level, depth, level) && (term.eras || is_at_level(term.argm, at_level, depth, level));
     case "Box": return is_at_level(term.expr, at_level, depth, level);
     case "Put": return is_at_level(term.expr, at_level, depth, level + 1);
-    case "Dup": return is_at_level(term.expr, at_level, depth, level) + is_at_level(term.body, at_level, depth + 1, level);
+    case "Dup": return is_at_level(term.expr, at_level, depth, level) && is_at_level(term.body, at_level, depth + 1, level);
     case "Slf": return true;
     case "New": return is_at_level(term.expr, at_level, depth, level);
     case "Use": return is_at_level(term.expr, at_level, depth, level);

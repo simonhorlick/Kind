@@ -230,6 +230,15 @@
   [B = (~b -[b](P (add zero b)) |[-n] [h] (s -(add zero n) h))]
 | [z] (A (B z)) 
 
+// TODO: mul
+//. mul
+//: {a : Nat} {b : Nat} Nat
+//= [a] [b] @Nat [-P] [s]
+//  [S = s]
+//  let motive [a] (P (mul a b))
+//  let case_s [-n:Nat] (~b -[x](P (add x (mul n b))) |[-m] [h] (S -(add m (mul n b)) h))
+//  (~a -motive case_s)
+
 . add_zero_r
 : {a : Nat} !(Eq Nat (add a zero) a)
 = [a]
@@ -272,6 +281,24 @@
   [S = (~a -motive case_succ)]
 | (S case_zero)
 
+. add_assoc
+: {a : Nat} {b : Nat} {c : Nat} !(Eq Nat (add (add a b) c) (add a (add b c)))
+= [a] [b] [c]
+  let motive [self]
+    (Eq Nat (add (add self b) c) (add self (add b c)))
+  let case_succ |[-a] [h]
+    let ab_c (add (add a b) c)
+    let a_bc (add a (add b c))
+    (cong -Nat -Nat -ab_c -a_bc h -succ)
+  let case_zero
+    (refl -Nat -(add b c))
+  [S = (~a -motive case_succ)]
+  | (S case_zero)
+
+. add_assoc_l
+: {a : Nat} {b : Nat} {c : Nat} !(Eq Nat (add a (add b c)) (add (add a b) c))
+= [a] [b] [c] [prf = (add_assoc a b c)]
+  | (sym -Nat -(add (add a b) c) -(add a (add b c)) prf)
 
 // Two different nonstratified proofs of commutativity; only works in erased positions.
 . add_comm
@@ -307,25 +334,6 @@
     prf
   [S = (~a -motive case_succ)]
 | (S case_zero)
-
-. add_assoc
-: {a : Nat} {b : Nat} {c : Nat} !(Eq Nat (add (add a b) c) (add a (add b c)))
-= [a] [b] [c]
-  let motive [self]
-    (Eq Nat (add (add self b) c) (add self (add b c)))
-  let case_succ |[-a] [h]
-    let ab_c (add (add a b) c)
-    let a_bc (add a (add b c))
-    (cong -Nat -Nat -ab_c -a_bc h -succ)
-  let case_zero
-    (refl -Nat -(add b c))
-  [S = (~a -motive case_succ)]
-  | (S case_zero)
-
-. add_assoc_l
-: {a : Nat} {b : Nat} {c : Nat} !(Eq Nat (add a (add b c)) (add (add a b) c))
-= [a] [b] [c] [prf = (add_assoc a b c)]
-  | (sym -Nat -(add (add a b) c) -(add a (add b c)) prf)
 
 // This was quite hard to get right, so it deserves some explaining. To make
 // this, first I defined the untyped function this should erase to:
@@ -378,15 +386,6 @@
   let motive [n] (Eq Nat (pred (succ n)) n)
   let case_s | [-n] [h] (cong -Nat -Nat -(pred (succ n)) -n h -succ)
   [F = (~n -motive case_s)] | (F (refl -Nat -zero))
-
-// TODO: mul
-//. mul
-//: {a : Nat} {b : Nat} Nat
-//= [a] [b] @Nat [-P] [s]
-//  [S = s]
-//  let motive [a] (P (mul a b))
-//  let case_s [-n:Nat] (~b -[x](P (add x (mul n b))) |[-m] [h] (S -(add m (mul n b)) h))
-//  (~a -motive case_s)
 
 // :::::::::
 // :: Rat ::
@@ -602,45 +601,163 @@
   let case_z [as] [bs] bs
   [S = (~n -motive case_s)] | (S case_z)
 
-// ::::::::::
-// :: List ::
-// ::::::::::
+// :::::::::::
+// :: Maybe ::
+// :::::::::::
+. Maybe [A : Type]
+: Type
+= $self
+  {-P : {:(Maybe A)} Type}
+  {just : {a : A} (P (just -A a))}
+  {nothing : (P (nothing -A))}
+  (P self)
+
+. just [-A : Type]
+: {a : A} (Maybe A)
+= [a] @(Maybe A) [-P] [just] [nothing] (just a)
+
+. nothing [-A : Type]
+: (Maybe A)
+= @(Maybe A) [-P] [just] [nothing] nothing
+
+// :::::::::::::::::::::::::::::::::::
+// :: List (church/parigot-encoded) ::
+// :::::::::::::::::::::::::::::::::::
 
 . List [A : Type]
 : Type
 = $self
-  {-P : {x : (List A)} Type}
-  {cons  : {a : A} {x : (List A)} (P (cons -A a x))}
-  {nil  : (P (nil -A))}
+  {-P : {:(List A)} Type}
+  {cons  : !{a : A} {-as : (List A)} {p : (P as)} (P (cons -A a as))}
+  !{nil  : (P (nil -A))}
   (P self)
 
 . cons [-A : Type]
 : {a : A} {as : (List A)} (List A)
 = [a] [as]
-  @(List A) [-P] [cons] [nil]
-  (cons a as)
+  @(List A) [-P] [cons] [cons = cons] [A = (~as -P |cons)]
+  | [nil] (cons a -as (A nil))
 
 . nil [-A : Type]
 : (List A)
-= @(List A) [-P] [cons] [nil]
-  nil
+= @(List A) [-P] [cons] [cons = cons] | [nil] nil
+
+. map [-A : Type] [-B : Type]
+: {:(List A)} {:{:A}B} (List B)
+= [as] [f] @(List B) [-P] [C]
+  [C = C]
+  let motive [as] (P (map -A -B as f))
+  let case_cons [a] [-as] [bs] (C (f a) -(map -A -B as f) bs)
+  [A = (~as -motive |case_cons)]
+  | [N] (A N)
 
 . concat [-A : Type]
-: {n : Nat} !{as : (List A)} {bs : (List A)} (List A)
+: {as : (List A)} {bs : (List A)} (List A)
+= [as] [bs] @(List A) [-P] [C]
+  [C = C]
+  [AS = (~as -[as] (P (concat -A as bs))
+             |[a] [-as] [h] (C a -(concat -A as bs) h))]
+  [BS = (~bs -[bs] (P (concat -A (nil -A) bs))
+             |[b] [-bs] [h] (C b -(concat -A (nil -A) bs) h))] 
+| [N] (AS (BS N))
+
+. reverse [-A : Type] // not fusionable
+: {:(List A)} !(List A)
+= [xs]
+  let iter [xs:(List A)] [A = (~xs -[] {:(List A)}(List A) |[x] [-xs] [h] [ys] (h (cons -A x ys)))] |(A [ys] ys)
+  [B = (iter xs)]
+  |(B (nil -A))
+
+// reverse tail call and fusionable (attempt)
+. reverse2 [-A : Type] [as:(List A)] (reverse2_aux -A as (nil -A))
+. reverse2_aux [-A : Type]
+: {:(List A)} {:(List A)} (List A)
+= [xs] [ys] @(List A) [-P] [C] [C = C]
+  [rec = (~xs -[xs] {-ys:(List A)} {p:(P ys)} (P (reverse2_aux -A xs ys))
+            |[x] [-xs] [h] [-ys] [p] (h -(cons -A x ys) (C x -ys p)))]
+  [p = (~ys -P |C)]
+  |[N] (rec [-ys] [p] p -ys (p N)) // type checker complains `ys` is not the same as `[C] [C = C] [p = (ys |C)] |[N] (p N)`
+
+. filter [-A : Type]
+: {:(List A)} {:{:A} (Pair Bool A)} !(List A)
+= [xs] [p] 
+  [B = (~xs -[] (List A)
+            |[x] [-xs] [h] (~(p x) -[] {:(List A)} (List A) [b] [x] (~b -[] {:(List A)} (List A) [r] (cons -A x r) [r] r) h))] 
+  |(B (nil -A))
+
+. filter2 [-A : Type]
+: {:(List !A)} {:!{:!A} Bool} !(List !A)
+= [xs] [p] [p=p]
+  [B = (~xs -[] (List !A)
+            |[x] [-xs] [h] [x=x] (~(p |x) -[] {:(List !A)} (List !A) [r] (cons -!A |x r) [r] r h))] // x appears twice, p appears twice if you bring [p] inside the pattern matching
+  |(B (nil -!A))
+
+//. filter3 [-A : Type] // attempt at fusionable definition
+//: {:(List A)} {:{:A} (Pair Bool A)} (List A)
+//= [xs] [p] @(List A) [-P] [C] [C=C]
+//  [B = (~xs -[xs] (P (filter3 -A xs p))
+//            |[x] [-xs] [h] (~(p x) -[] {:()} () [b] [x] (~b -[] {:()} () [r] (C x -xs r) [r] r) h))]  // the problem is pattern matching on (p x),
+                                                                                                        //as we do not know a priori which branch it will go to.
+                                                                                                        //Can probably be solved with the help of an auxiliary definition.
+//  |[N] (B N)
+
+. foldl [-A : Type] [-B : Type] // fusional foldl impossible as the return type is a generic type
+: {:(List A)} {:!{:B} {:A} B} !{:B} B
+= [as] [op] [op = op] [rec = (~as -[] B |[a] [-] [h] (op h a))] |[b] (rec b)
+
+. foldr [-A : Type] [-B : Type]
+: {:(List A)} {:!{:A} {:B} B} !{:B} B
+= [as] [op] [op = op] [rec = (~as -[] B |[a] [-] [h] (op a h))] | [b] (rec b)
+
+// ::::::::::::::::::::::::::::::::
+// :: Stack (scott-encoded list) ::
+// ::::::::::::::::::::::::::::::::
+
+. Stack [A : Type]
+: Type
+= $self
+  {-P : {as : (Stack A)} Type}
+  {push  : {a : A} {as : (Stack A)} (P (push -A a as))}
+  {empty  : (P (empty -A))}
+  (P self)
+
+. push [-A : Type]
+: {a : A} {as : (Stack A)} (Stack A)
+= [a] [as]
+  @(Stack A) [-P] [push] [empty]
+  (push a as)
+
+. top [-A : Type]
+: {as : (Stack A)} (Maybe A)
+= [as] @(Maybe A) [-P] [just] [nothing]
+  (~as -[as] (P (top -A as)) [a] [] (just a) nothing)
+
+. pop [-A : Type]
+: {as : (Stack A)} (Maybe (Stack A))
+= [as] @(Maybe (Stack A)) [-P] [just] [nothing]
+  (~as -[as] (P (pop -A as)) [] [as] (just as) nothing)
+
+. empty [-A : Type]
+: (Stack A)
+= @(Stack A) [-P] [push] [empty]
+  empty
+
+. pile [-A : Type]
+: {n : Nat} !{as : (Stack A)} {bs : (Stack A)} (Stack A)
 = [n]
-  let motive [n] {as : (List A)} {bs : (List A)} (List A)
+  let motive [n] {as : (Stack A)} {bs : (Stack A)} (Stack A)
   let case_s | [-n] [h] [as]
-    let motive [] {bs : (List A)} (List A)
-    let case_cons [a] [as] [bs] (cons -A a (h as bs)) 
-    let case_nil [bs] bs
-    (~as -motive case_cons case_nil)
+    let motive [] {bs : (Stack A)} (Stack A)
+    let case_push [a] [as] [bs] (push -A a (h as bs)) 
+    let case_empty [bs] bs
+    (~as -motive case_push case_empty)
   let case_z [as] [bs] bs
   [S = (~n -motive case_s)]
   | (S case_z)
 
-// ::::::::::::
-// :: Vector ::
-// ::::::::::::
+// :::::::::::::::::::::::::::::
+// :: Vector (scott-encoding) ::
+// :::::::::::::::::::::::::::::
 
 . Vector [A : Type] [n : Nat]
 : Type
@@ -673,3 +790,9 @@
   
 .main   inc_test
 .stdlib inc_test
+
+.test1 [x:!Nat] [y:!Nat] [x=x] |x
+.test2 [x:!Nat] [y:!Nat] x
+.eqtest
+: (Eq {:!Nat} {:!Nat} !Nat test1 test2)
+= (refl -{:!Nat} {:!Nat} !Nat -test2)
