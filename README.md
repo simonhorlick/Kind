@@ -8,7 +8,7 @@ A upcoming efficient proof-gramming language. It aims to be:
 
 - **Portable:** the full language is implemented in a 400-LOC runtime, making it easily available everywhere.
 
-Formality isn't ready yet, but you can already use [Formality-Core](https://github.com/moonad/formality-core), our low-level compile target. [Check its wiki](https://github.com/moonad/formality-core/wiki)!
+Formality isn't ready yet, but you can already use [Formality-Core](https://github.com/moonad/formality-core), our low-level compile target ([check its wiki](https://github.com/moonad/formality-core/wiki), and [EA-TT]([EA-TT](https://github.com/moonad/elementary-affine-type-theory)), our underlying proof language.
 
 ## Projects
 
