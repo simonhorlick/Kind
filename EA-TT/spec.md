@@ -50,7 +50,7 @@ Plus the stratification condition, which dictates that:
 
 ## Erasure to EA-CORE
 
-Computationally, EA-TT terms are erased to the [Elementary Affine Core](https://github.com/moonad/elementary-affine-core). The erasure `E(t)` of a EA-TT term to EA-CORE is defined as:
+Computationally, EA-TT terms are erased to the [Elementary Affine Core](../EA-Core). The erasure `E(t)` of a EA-TT term to EA-CORE is defined as:
 
 ```javascript
 E(Type)      = [x] x
