@@ -604,57 +604,168 @@ function hash(term, dep = 0) {
   }
 };
 
-//var COUNT = 0;
-// Are two terms equal?
-function equal(a, b, defs, hols, dep = 0, rec = {}) {
-  let a1 = reduce(a, defs, hols, true);
-  let b1 = reduce(b, defs, hols, true);
-  var ah = hash(a1);
-  var bh = hash(b1);
-  var id = ah + "==" + bh;
-  if (ah === bh || rec[id]) {
+
+// Creates a new disjoint set
+function new_disjoint_set() {
+  const disjoint_set = {rank: 0};
+  disjoint_set.parent = disjoint_set;
+  return disjoint_set;
+};
+
+// Finds the disjoint set of an element
+function disjoint_set_find(node) {
+  if (node.parent !== node) {
+    node.parent = disjoint_set_find(node.parent);
+  }
+  return node.parent;
+};
+
+// Merges two disjoint sets
+function disjoint_set_union(node1, node2) {
+  var root1 = disjoint_set_find(node1);
+  var root2 = disjoint_set_find(node2);
+  if (root1 !== root2) {
+    if (root1.rank < root2.rank) {
+      root1.parent = root2;
+    } else {
+      root2.parent = root1;
+      if (root1.rank === root2.rank) {
+        root1.rank += 1;
+      }
+    }
+  }
+};
+
+// Checks if `x` and `y` are on the same equivalence class
+function is_equivalent(map, x, y) {
+  if (map[x] && map[y]) {
+    return disjoint_set_find(map[x]) === disjoint_set_find(map[y]);
+  } else {
+    return x === y;
+  }
+};
+
+// Merges the equivalence classes of `x` and `y`
+function equate(map, x, y) {
+  if (!map[x]) {
+    map[x] = new_disjoint_set();
+  }
+  if (!map[y]) {
+    map[y] = new_disjoint_set();
+  };
+  disjoint_set_union(map[x], map[y]);
+};
+
+function congruent_terms(map, a, b, depth = 0) {
+  if (is_equivalent(map, hash(a), hash(b))) {
     return true;
   } else {
-    rec[id] = true;
-    switch (a1.ctor + b1.ctor) {
+    switch (a.ctor + b.ctor) {
       case "AllAll":
-        var a1_body = a1.body(Var("#"+(dep)), Var("#"+(dep+1)));
-        var b1_body = b1.body(Var("#"+(dep)), Var("#"+(dep+1)));
-        return a1.eras === b1.eras
-            && equal(a1.bind, b1.bind, defs, hols, dep+0, rec)
-            && equal(a1_body, b1_body, defs, hols, dep+2, rec);
+        var bind_id = congruent_terms(map, a.bind, b.bind, depth);
+        var a_body = a.body(Var("#"+(depth)), Var("#"+(depth+1)));
+        var b_body = b.body(Var("#"+(depth)), Var("#"+(depth+1)));
+        var body_id = congruent_terms(map, a_body, b_body, depth+2);
+        var self_id = a.self === b.self
+        var eras_id = a.eras === b.eras
+        return self_id && eras_id && bind_id && body_id;
       case "LamLam":
-        if (a1.eras !== b1.eras) return [false,a1,b1];
-        var a1_body = a1.body(Var("#"+(dep)));
-        var b1_body = b1.body(Var("#"+(dep)));
-        return a1.eras === b1.eras
-            && equal(a1_body, b1_body, defs, hols, dep+1, rec);
+        var a_body = a.body(Var("#"+(depth)));
+        var b_body = b.body(Var("#"+(depth)));
+        var body_id = congruent_terms(map, a_body, b_body, depth);
+        var eras_id = a.eras === b.eras
+        return eras_id && body_id;
       case "AppApp":
-        return a1.eras === b1.eras
-            && equal(a1.func, b1.func, defs, hols, dep, rec)
-            && equal(a1.argm, b1.argm, defs, hols, dep, rec);
+        var func_id = congruent_terms(map, a.func, b.func, depth);
+        var argm_id = congruent_terms(map, a.argm, b.argm, depth);
+        var eras_id = a.eras === b.eras
+        return eras_id && func_id && argm_id;
       case "LetLet":
-        var a1_body = a1.body(Var("#"+(dep)));
-        var b1_body = b1.body(Var("#"+(dep)));
-        vis.push([a1.expr, b1.expr, dep]);
-        vis.push([a1_body, b1_body, dep+1]);
-        return equal(a1.expr, b1.expr, defs, hols, dep+0, rec)
-            && equal(a1_body, b1_body, defs, hols, dep+1, rec);
+        var expr_id = congruent_terms(map, a.expr, b.expr, depth);
+        var a_body = a.body(Var("#"+(depth)));
+        var b_body = b.body(Var("#"+(depth)));
+        var body_id = congruent_terms(map, a_body, b_body,depth+1);
+        return expr_id && body_id;
       case "AnnAnn":
-        return equal(a1.expr, b1.expr, defs, hols, dep, rec);
-      case "LocLoc":
-        return equal(a1.expr, b1.expr, defs, hols, dep, rec);
+        var expr_id = congruent_terms(map, a.expr, b.expr, depth);
+        return expr_id;
+      case "HolHol":
+        return a.name === b.name
       default:
-        if (a1.ctor === "Hol") {
-          throw [a1.name, b];
+      if (a.ctor === "Loc" || a.ctor === "Ann") {
+        return congruent_terms(map, a.expr, b, depth);
+      }
+      else if (b.ctor === "Loc" || b.ctor === "Ann") {
+        return congruent_terms(map, a, b.expr, depth);
+      }
+      else {
+        return false;
+      }
+    }
+  }
+};
+
+function equal(a, b, defs, hols, dep = 0, rec = {}) {
+  var vis = [[a, b, dep]];
+  var idx = 0;
+  while (idx < vis.length) {
+    let [a0, b0, depth] = vis[idx];
+    let a1 = reduce(a0, defs, hols, true);
+    let b1 = reduce(b0, defs, hols, true);
+    let a0h = hash(a0);
+    let b0h = hash(b0);
+    let a1h = hash(a1);
+    let b1h = hash(b1);
+    equate(rec, a0h, a1h);
+    equate(rec, b0h, b1h);
+    var id = congruent_terms(rec, a1, b1);
+    equate(rec, a1h , b1h);
+    if (!id) {
+      switch (a1.ctor + b1.ctor) {
+        case "AllAll":
+          var a_body = a1.body(Var("#"+(depth)), Var("#"+(depth+1)));
+          var b_body = b1.body(Var("#"+(depth)), Var("#"+(depth+1)));
+          vis.push([a1.bind, b1.bind, depth]);
+          vis.push([a_body, b_body, depth + 2]);
+          break;
+        case "LamLam":
+          var a_body = a1.body(Var("#"+(depth)));
+          var b_body = b1.body(Var("#"+(depth)));
+          vis.push([a_body, b_body, depth + 1]);
+          break;
+        case "AppApp":
+          vis.push([a1.func, b1.func, depth]);
+          vis.push([a1.argm, b1.argm, depth]);
+          break;
+        case "LetLet":
+          var a_body = a1.body(Var("#"+(depth)));
+          var b_body = b1.body(Var("#"+(depth)));
+          vis.push([a1.expr, b1.expr, depth]);
+          vis.push([a_body, b_body, depth + 1]);
+          break;
+        default:
+        if (a1.ctor === "Loc" || a1.ctor === "Ann") {
+          vis.push([a1.expr, b1, depth]);
+          break;
+        }
+        else if (b1.ctor === "Loc" || b1.ctor === "Ann") {
+          vis.push([a1, b1.expr, depth]);
+          break;
+        }
+        else if (a1.ctor === "Hol") {
+          throw [a1.name, b1];
         } else if (b1.ctor === "Hol") {
-          throw [b1.name, a]
+          throw [b1.name, a1]
         } else {
           return false;
         }
-    }
+      }
+    };
+    idx += 1;
   };
+  return true;
 };
+
 
 // Diagonalization
 // ===============
@@ -928,7 +1039,7 @@ function typecheck(term, type, defs, show = stringify, hols = {}, ctx = Nil(), l
             new_hols.push({...hols, [term.name]: (vals) => {
               var hole = at(vals, i);
               var type = reduce(val.type, defs, hols, false);
-              var arit = 0; 
+              var arit = 0;
               while (type.ctor === "All") {
                 hole = App(type.eras, hole, Hol(nam0 + (arit++), vals));
                 type = reduce(type.body(Ref("^"),Ref("^")), defs, hols, false);
@@ -980,7 +1091,7 @@ function typesynth(name, defs, show = stringify) {
     defs[name].core = null;
     var term = defs[name].term;
     var type = defs[name].type;
-    var [hols,_] = exec(() => 
+    var [hols,_] = exec(() =>
       deep([[typecheck, [type, Typ(), defs, show, {}, Nil(), null]]], ([hols,_]) =>
       deep([[typecheck, [term, type, defs, show, {}, Nil(), null]]], ([hols,type]) => {
         for (var hol in hols) {
