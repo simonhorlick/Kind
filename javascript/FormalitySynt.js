@@ -5,7 +5,7 @@
 
 const Var = (indx)                     => ({ctor:"Var",indx});
 const Ref = (name)                     => ({ctor:"Ref",name});
-const Typ = ()                         => ({ctor:"Typ"});
+const Typ = ()                         => ({ctor:"Ref",name:"Type"});
 const All = (eras,self,name,bind,body) => ({ctor:"All",eras,self,name,bind,body});
 const Lam = (eras,name,body)           => ({ctor:"Lam",eras,name,body});
 const App = (eras,func,argm)           => ({ctor:"App",eras,func,argm});
@@ -64,8 +64,6 @@ function stringify(term, depth = 0) {
       return term.indx.split("#")[0];
     case "Ref":
       return term.name;
-    case "Typ":
-      return "*";
     case "All":
       var bind = term.eras ? "∀" : "Π";
       var self = term.self;
@@ -177,6 +175,7 @@ function parse(code, indx, mode = "defs") {
     }
   }
   function parse_char(chr) {
+    parse_nuls();
     if (indx >= code.length) {
       throw "Unexpected eof.";
     } else if (code[indx] !== chr) {
@@ -189,8 +188,6 @@ function parse(code, indx, mode = "defs") {
     parse_nuls();
     var chr = code[indx++];
     switch (chr) {
-      case "*":
-        return ctx => Typ();
       case "∀":
       case "Π":
         var eras = chr === "∀";
@@ -350,7 +347,6 @@ function unloc(term) {
   switch (term.ctor) {
     case "Var": return term;
     case "Ref": return term;
-    case "Typ": return term;
     case "All": return All(term.eras, term.self, term.name, unloc(term.bind), (s, x) => unloc(term.body(s, x)));
     case "Lam": return Lam(term.eras, term.name, x => unloc(term.body(x)));
     case "App": return App(term.eras, unloc(term.func), unloc(term.argm));
@@ -370,7 +366,19 @@ function reduce(term, defs = {}, hols = {}, erased = false) {
     case "Var":
       return Var(term.indx);
     case "Ref":
-      if (defs[term.name]) {
+      if (defs && term.name === "Type") {
+        var mot_ty =
+          All(false, "", "self", Typ(), (m,n) => Typ());
+        var all_ty = P =>
+          All(false, "", "A", Typ(), (m,A) =>
+          All(false, "", "B", All(false, "", "x", A, (m,n) => Typ()), (m,B) =>
+          App(false, P, All(false, "", "x", A, (m,x) => App(false, B, x)))));
+        var typ_ty =
+          All(true, "self", "P", mot_ty, (self,P) =>
+          All(false, "", "all", all_ty(P), (m,n) =>
+          App(false, P, self)));
+        return reduce(typ_ty, defs, hols, erased);
+      } else if (defs && defs[term.name]) {
         // If reference wasn't synthetized, synthetize it
         if (defs[term.name].core === undefined) {
           var got = typesynth(term.name, defs).term;
@@ -390,8 +398,6 @@ function reduce(term, defs = {}, hols = {}, erased = false) {
       } else {
         return Ref(term.name);
       }
-    case "Typ":
-      return Typ();
     case "All":
       var eras = term.eras;
       var self = term.self;
@@ -414,12 +420,31 @@ function reduce(term, defs = {}, hols = {}, erased = false) {
       } else {
         var eras = term.eras;
         var func = reduce(term.func, defs, hols, erased);
-        switch (func.ctor) {
-          case "Lam":
-            return reduce(func.body(term.argm), defs, hols, erased);
-          default:
-            return App(eras, func, term.argm);
-        };
+
+        //switch (func.ctor) {
+          //case "Lam":
+            //return reduce(func.body(term.argm), defs, hols, erased);
+          //default:
+            //return App(eras, func, term.argm);
+        //};
+
+        // ((λx f) a) ~> f[x <- a]
+        if (func.ctor === "Lam") {
+          return reduce(func.body(term.argm), defs, hols, erased);
+        }
+        // (<Π(x:A)B motive> λx λy k) ~> k[A <- x][B <- y(x)]
+        if (func.ctor === "All") {
+          var argm = reduce(term.argm, defs, hols, erased);
+          if (argm.ctor === "Lam") {
+            var argm_body = reduce(argm.body(func.bind), defs, hols, erased);
+            if (argm_body.ctor === "Lam") {
+              return reduce(argm_body.body(Lam(false, "x", x => func.body(Ref("?"), x))), defs, hols, erased);
+            }
+          }
+        }
+
+        return App(eras, func, term.argm);
+
       };
     case "Let":
       var name = term.name;
@@ -468,8 +493,6 @@ function normalize(term, defs, hols = {}, erased = false, seen = {}) {
         return Var(norm.indx);
       case "Ref":
         return Ref(norm.name);
-      case "Typ":
-        return Typ();
       case "All":
         var eras = norm.eras;
         var self = norm.self;
@@ -520,8 +543,6 @@ function canonicalize(term, hols = {}, to_core = false, inline_lams = true) {
       return Var(term.indx);
     case "Ref":
       return Ref(term.name);
-    case "Typ":
-      return Typ();
     case "All":
       var eras = term.eras;
       var self = term.self;
@@ -622,8 +643,6 @@ function hash(term, dep = 0) {
       }
     case "Ref":
       return "$" + term.name;
-    case "Typ":
-      return "Type";
     case "All":
       var bind = hash(term.bind, dep);
       var body = hash(term.body(Var("#"+(-dep-1)), Var("#"+(-dep-2))), dep+2);
@@ -794,25 +813,27 @@ function typeinfer(term, defs, show = stringify, hols = {}, ctx = Nil(), locs = 
     case "Var":
       return "{" + done([hols, Var(term.indx)]) + "}";
     case "Ref":
-      var got = defs[term.name];
-      if (got) {
-        if (got.core === undefined) {
-          try {
-            var typ = typesynth(term.name, defs, show).type;
-          } catch (e) {
-            return fail(() => Err(locs, ctx, e().msg));
-          }
-        } else if (defs[term.name].core === null) {
-          var typ = defs[term.name].type;
-        } else {
-          var typ = defs[term.name].core.type;
-        }
-        return done([hols, typ]);
+      if (term.name === "Type") {
+        return done([hols, Typ()]);
       } else {
-        return fail(() => Err(locs, ctx, "Undefined reference '" + term.name + "'."));
+        var got = defs[term.name];
+        if (got) {
+          if (got.core === undefined) {
+            try {
+              var typ = typesynth(term.name, defs, show).type;
+            } catch (e) {
+              return fail(() => Err(locs, ctx, e().msg));
+            }
+          } else if (defs[term.name].core === null) {
+            var typ = defs[term.name].type;
+          } else {
+            var typ = defs[term.name].core.type;
+          }
+          return done([hols, typ]);
+        } else {
+          return fail(() => Err(locs, ctx, "Undefined reference '" + term.name + "'."));
+        }
       }
-    case "Typ":
-      return done([hols, Typ()]);
     case "All":
       var self_var = Ann(true, Var(term.self+"#"+ctx.size), term);
       var name_var = Ann(true, Var(term.name+"#"+(ctx.size+1)), term.bind);
@@ -824,7 +845,7 @@ function typeinfer(term, defs, show = stringify, hols = {}, ctx = Nil(), locs = 
         done([hols, Typ()]))));
     case "App":
       return deep([[typeinfer, [term.func, defs, show, hols, ctx, locs]]], ([hols, func_typ]) => {
-        var func_typ = reduce(func_typ, defs, hols, false);
+        var func_typ = reduce(func_typ, defs, hols, true);
         switch (func_typ.ctor) {
           case "All":
             var self_var = Ann(true, term.func, func_typ);
@@ -875,7 +896,7 @@ function typeinfer(term, defs, show = stringify, hols = {}, ctx = Nil(), locs = 
       return done([hols, Hol(nam0, term.vals)]);
     case "Cse":
       return deep([[typeinfer, [term.func, defs, show, hols, ctx, locs]]], ([hols, func_typ]) => {
-        var func_typ = reduce(func_typ, defs, hols, false);
+        var func_typ = reduce(func_typ, defs, hols, true);
         var hols = {...hols, [term.name]: func_typ};
         var term_val = build_cse(term, func_typ);
         return deep([[typeinfer, [term_val, defs, show, hols, ctx, locs]]], done);
@@ -905,7 +926,7 @@ function typeinfer(term, defs, show = stringify, hols = {}, ctx = Nil(), locs = 
 };
 
 function typecheck(term, type, defs, show = stringify, hols = {}, ctx = Nil(), locs = null) {
-  var typv = reduce(type, defs, hols, false);
+  var typv = reduce(type, defs, hols, true);
   switch (term.ctor) {
     case "Lam":
       if (typv.ctor === "All") {
@@ -983,7 +1004,8 @@ function typecheck(term, type, defs, show = stringify, hols = {}, ctx = Nil(), l
         //console.log("----------------", show(typv));
         fold(term.vals, i => null, (val, cont) => i => {
           // Get the return type of the context variable
-          var cmp0 = reduce(val.type, defs, hols, false);
+          if (!val.type) throw "TODO: debug";
+          var cmp0 = reduce(val.type, defs, hols, true);
           var cmp1 = typv;
           while (cmp0.ctor === "All") { cmp0 = reduce(cmp0.body(Ref("^"), Ref("^")), {}); }
           while (cmp0.ctor === "App") { cmp0 = reduce(cmp0.func, {}); }
@@ -1003,11 +1025,11 @@ function typecheck(term, type, defs, show = stringify, hols = {}, ctx = Nil(), l
             var nam0 = new_name();
             new_hols.push({...hols, [term.name]: (vals) => {
               var hole = at(vals, i);
-              var type = reduce(val.type, defs, hols, false);
+              var type = reduce(val.type, defs, hols, true);
               var arit = 0; 
               while (type.ctor === "All") {
                 hole = App(type.eras, hole, Hol(nam0 + (arit++), vals));
-                type = reduce(type.body(Ref("^"),Ref("^")), defs, hols, false);
+                type = reduce(type.body(Ref("^"),Ref("^")), defs, hols, true);
               };
               return hole;
             }});
@@ -1025,12 +1047,12 @@ function typecheck(term, type, defs, show = stringify, hols = {}, ctx = Nil(), l
       };
     case "Wat":
       var ctx = fold(ctx, Nil(), ({name,type}, ctx) => {
-        var type = normalize(type, {}, hols, true);
+        var type = normalize(type, null, hols, true);
         return Ext({name,type}, ctx);
       });
       var err = Err(locs, ctx,
         "\x1b[1mHole \x1b[4m"+term.name+"\x1b[0m\x1b[1m:\x1b[0m\n" +
-        "With type: "+show(normalize(type,{},hols,true),ctx));
+        "With type: "+show(normalize(type,null,hols,true),ctx));
       var msg = require("./FormalityLang.js").stringify_err(err, null).replace(/\n*$/g,"");
       HOLE_LOGS[term.name] = msg;
       return done([hols, type]);
@@ -1040,10 +1062,10 @@ function typecheck(term, type, defs, show = stringify, hols = {}, ctx = Nil(), l
           var eq = equal(type, infr, defs, hols, ctx.size);
           if (!eq) {
             return fail(() => {
-              var type0_str = show(normalize(type, {}, hols, true), ctx);
-              var infr0_str = show(normalize(infr, {}, hols, true), ctx);
+              var type0_str = show(normalize(type, null, hols, true), ctx);
+              var infr0_str = show(normalize(infr, null, hols, true), ctx);
               var err_ctx = fold(ctx, Nil(), ({name,type}, ctx) => {
-                var type = normalize(type, {}, hols, true);
+                var type = normalize(type, null, hols, true);
                 return Ext({name,type}, ctx);
               });
               return Err(locs, err_ctx,

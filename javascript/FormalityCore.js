@@ -3,13 +3,13 @@
 
 const Var = (indx)                     => ({ctor:"Var",indx});
 const Ref = (name)                     => ({ctor:"Ref",name});
-const Typ = ()                         => ({ctor:"Typ"});
 const All = (eras,self,name,bind,body) => ({ctor:"All",eras,self,name,bind,body});
 const Lam = (eras,name,body)           => ({ctor:"Lam",eras,name,body});
 const App = (eras,func,argm)           => ({ctor:"App",eras,func,argm});
 const Let = (name,expr,body)           => ({ctor:"Let",name,expr,body});
 const Ann = (done,expr,type)           => ({ctor:"Ann",done,expr,type});
 const Loc = (from,upto,expr)           => ({ctor:"Loc",from,upto,expr});
+const Typ = ()                         => ({ctor:"Ref",name:"Type"});
 
 // List
 // ====
@@ -40,8 +40,6 @@ function stringify(term, depth = 0) {
       return term.indx.split("#")[0];
     case "Ref":
       return term.name;
-    case "Typ":
-      return "*";
     case "All":
       var bind = term.eras ? "∀" : "Π";
       var self = term.self || ("x"+(depth+0));
@@ -96,6 +94,7 @@ function parse(code, indx, mode = "defs") {
     };
   };
   function parse_char(chr) {
+    parse_nuls();
     if (indx >= code.length) {
       throw "Unexpected eof.";
     } else if (code[indx] !== chr) {
@@ -107,8 +106,6 @@ function parse(code, indx, mode = "defs") {
     parse_nuls();
     var chr = code[indx++];
     switch (chr) {
-      case "*":
-        return ctx => Typ();
       case "∀":
       case "Π":
         var eras = chr === "∀";
@@ -119,7 +116,10 @@ function parse(code, indx, mode = "defs") {
         var bind = parse_term();
         var skip = parse_char(")");
         var body = parse_term();
-        return ctx => All(eras, self, name, bind(ctx), (s,x) => body(Ext([name,x],Ext([self,s],ctx))));
+        return ctx => {
+          var body_t = (s,x) => body(Ext([name,x],Ext([self,s],ctx)));
+          return All(eras, self, name, bind(ctx), body_t);
+        };
       case "λ":
       case "Λ":
         var eras = chr === "Λ";
@@ -185,7 +185,19 @@ function reduce(term, defs, erased = false) {
     case "Var":
       return Var(term.indx);
     case "Ref":
-      if (defs[term.name]) {
+      if (defs && term.name === "Type") {
+        var mot_ty =
+          All(false, "", "self", Typ(), (m,n) => Typ());
+        var all_ty = P =>
+          All(false, "", "A", Typ(), (m,A) =>
+          All(false, "", "B", All(false, "", "x", A, (m,n) => Typ()), (m,B) =>
+          App(false, P, All(false, "", "x", A, (m,x) => App(false, B, x)))));
+        var typ_ty =
+          All(true, "self", "P", mot_ty, (self,P) =>
+          All(false, "", "all", all_ty(P), (m,n) =>
+          App(false, P, self)));
+        return reduce(Ann(true, typ_ty, Typ()), defs, erased);
+      } else if (defs && defs[term.name]) {
         var got = defs[term.name].term;
         if (got.ctor === "Loc" && got.expr.ctor === "Ref" && got.expr.name === term.name) {
           return got;
@@ -195,8 +207,6 @@ function reduce(term, defs, erased = false) {
       } else {
         return Ref(term.name);
       }
-    case "Typ":
-      return Typ();
     case "All":
       var eras = term.eras;
       var self = term.self;
@@ -219,12 +229,21 @@ function reduce(term, defs, erased = false) {
       } else {
         var eras = term.eras;
         var func = reduce(term.func, defs, erased);
-        switch (func.ctor) {
-          case "Lam":
-            return reduce(func.body(term.argm), defs, erased);
-          default:
-            return App(eras, func, term.argm);
-        };
+        // ((λx f) a) ~> f[x <- a]
+        if (func.ctor === "Lam") {
+          return reduce(func.body(term.argm), defs, erased);
+        }
+        // (<Π(x:A)B motive> λx λy k) ~> k[A <- x][B <- y(x)]
+        if (func.ctor === "All") {
+          var argm = reduce(term.argm, defs, erased);
+          if (argm.ctor === "Lam") {
+            var argm_body = reduce(argm.body(func.bind), defs, erased);
+            if (argm_body.ctor === "Lam") {
+              return reduce(argm_body.body(Lam(false, "x", x => func.body(Ref("?"), x))), defs, erased);
+            }
+          }
+        }
+        return App(eras, func, term.argm);
       };
     case "Let":
       var name = term.name;
@@ -252,8 +271,6 @@ function normalize(term, defs, erased = false, seen = {}) {
         return Var(norm.indx);
       case "Ref":
         return Ref(norm.name);
-      case "Typ":
-        return Typ();
       case "All":
         var eras = norm.eras;
         var self = norm.self;
@@ -296,8 +313,6 @@ function hash(term, dep = 0) {
       }
     case "Ref":
       return "$" + term.name;
-    case "Typ":
-      return "Type";
     case "All":
       var bind = hash(term.bind, dep);
       var body = hash(term.body(Var("#"+(-dep-1)), Var("#"+(-dep-2))), dep+2);
@@ -368,7 +383,6 @@ function equal(a, b, defs, dep = 0, seen = {}) {
   };
 }
 
-
 // Type-Checking
 // =============
 
@@ -385,16 +399,18 @@ function typeinfer(term, defs, show = stringify, ctx = Nil(), locs = null) {
     case "Var":
       return Var(term.indx);
     case "Ref":
-      var got = defs[term.name];
-      if (got) {
-        return got.type;
+      if (term.name === "Type") {
+        return Typ();
       } else {
-        throw () => Err(locs, ctx, "Undefined reference '" + term.name + "'.");
-      }
-    case "Typ":
-      return Typ();
+        var got = defs[term.name];
+        if (got) {
+          return got.type;
+        } else {
+          throw () => Err(locs, ctx, "Undefined reference '" + term.name + "'.");
+        }
+      };
     case "App":
-      var func_typ = reduce(typeinfer(term.func, defs, show, ctx), defs);
+      var func_typ = reduce(typeinfer(term.func, defs, show, ctx), defs, true);
       switch (func_typ.ctor) {
         case "All":
           var self_var = Ann(true, term.func, func_typ);
@@ -406,6 +422,8 @@ function typeinfer(term, defs, show = stringify, ctx = Nil(), locs = null) {
           };
           return term_typ;
         default:
+          //console.log("...", func_typ);
+          //console.log("...", reduce(func_typ, defs));
           throw () => Err(locs, ctx, "Non-function application.");
       };
     case "Let":
@@ -435,7 +453,7 @@ function typeinfer(term, defs, show = stringify, ctx = Nil(), locs = null) {
 };
 
 function typecheck(term, type, defs, show = stringify, ctx = Nil(), locs = null) {
-  var typv = reduce(type, defs);
+  var typv = reduce(type, defs, true);
   switch (term.ctor) {
     case "Lam":
       if (typv.ctor === "All") {
@@ -448,8 +466,11 @@ function typecheck(term, type, defs, show = stringify, ctx = Nil(), locs = null)
         var body_ctx = Ext({name:term.name,type:name_var.type}, ctx);
         typecheck(term.body(name_var), body_typ, defs, show, body_ctx);
       } else {
+        //console.log("...", stringify(typv));
+        //console.log("...", stringify(reduce(typv,defs,true)));
         throw () => Err(locs, ctx, "Lambda has a non-function type.");
       }
+      //(<Πx0(x::Type A) (:Πx2(x::Type A) Type B x) λx Type> λA λB Πx0(x:A) Type)
       break;
     case "Let":
       var expr_typ = typeinfer(term.expr, defs, show, ctx);
@@ -465,8 +486,8 @@ function typecheck(term, type, defs, show = stringify, ctx = Nil(), locs = null)
       var infr = typeinfer(term, defs, show, ctx);
       var eq = equal(type, infr, defs, ctx.size);
       if (!eq) {
-        var type0_str = show(normalize(type, {}, true), ctx);
-        var infr0_str = show(normalize(infr, {}, true), ctx);
+        var type0_str = show(normalize(type, null, true));
+        var infr0_str = show(normalize(infr, null, true));
         throw () => Err(locs, ctx,
           "Found type... \x1b[2m"+infr0_str+"\x1b[0m\n" +
           "Instead of... \x1b[2m"+type0_str+"\x1b[0m");
