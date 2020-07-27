@@ -1,15 +1,15 @@
 // Term
 // ====
 
-const Var = (indx)                     => ({ctor:"Var",indx});
-const Ref = (name)                     => ({ctor:"Ref",name});
-const Typ = ()                         => ({ctor:"Typ"});
-const All = (eras,self,name,bind,body) => ({ctor:"All",eras,self,name,bind,body});
-const Lam = (eras,name,body)           => ({ctor:"Lam",eras,name,body});
-const App = (eras,func,argm)           => ({ctor:"App",eras,func,argm});
-const Let = (name,expr,body)           => ({ctor:"Let",name,expr,body});
-const Ann = (done,expr,type)           => ({ctor:"Ann",done,expr,type});
-const Loc = (from,upto,expr)           => ({ctor:"Loc",from,upto,expr});
+const Var = (indx)                          => ({ctor:"Var",indx});
+const Ref = (name)                          => ({ctor:"Ref",name});
+const Typ = ()                              => ({ctor:"Typ"});
+const All = (eras,kind,self,name,bind,body) => ({ctor:"All",eras,kind,self,name,bind,body});
+const Lam = (eras,name,body)                => ({ctor:"Lam",eras,name,body});
+const App = (eras,func,argm)                => ({ctor:"App",eras,func,argm});
+const Let = (name,expr,body)                => ({ctor:"Let",name,expr,body});
+const Ann = (done,expr,type)                => ({ctor:"Ann",done,expr,type});
+const Loc = (from,upto,expr)                => ({ctor:"Loc",from,upto,expr});
 
 // List
 // ====
@@ -43,7 +43,7 @@ function stringify(term, depth = 0) {
     case "Typ":
       return "*";
     case "All":
-      var bind = term.eras ? "∀" : "Π";
+      var bind = term.eras ? "Π" : "∀";
       var self = term.self || ("x"+(depth+0));
       var name = term.name || ("x"+(depth+1));
       var type = stringify(term.bind, depth);
@@ -111,7 +111,8 @@ function parse(code, indx, mode = "defs") {
         return ctx => Typ();
       case "∀":
       case "Π":
-        var eras = chr === "∀";
+        var eras = chr === "Π";
+        var kind = Math.floor(Math.random() * (2 ** 32));
         var self = parse_name();
         var skip = parse_char("(");
         var name = parse_name();
@@ -119,7 +120,7 @@ function parse(code, indx, mode = "defs") {
         var bind = parse_term();
         var skip = parse_char(")");
         var body = parse_term();
-        return ctx => All(eras, self, name, bind(ctx), (s,x) => body(Ext([name,x],Ext([self,s],ctx))));
+        return ctx => All(eras, kind, self, name, bind(ctx), (s,x) => body(Ext([name,x],Ext([self,s],ctx))));
       case "λ":
       case "Λ":
         var eras = chr === "Λ";
@@ -199,11 +200,12 @@ function reduce(term, defs, erased = false) {
       return Typ();
     case "All":
       var eras = term.eras;
+      var kind = term.kind;
       var self = term.self;
       var name = term.name;
       var bind = term.bind;
       var body = term.body;
-      return All(eras, self, name, bind, body);
+      return All(eras, kind, self, name, bind, body);
     case "Lam":
       if (erased && term.eras) {
         return reduce(term.body(Lam(false, "", x => x)), defs, erased);
@@ -256,11 +258,12 @@ function normalize(term, defs, erased = false, seen = {}) {
         return Typ();
       case "All":
         var eras = norm.eras;
+        var kind = norm.kind;
         var self = norm.self;
         var name = norm.name;
         var bind = normalize(norm.bind, defs, erased, seen);
         var body = (s,x) => normalize(norm.body(s,x), defs, erased, seen);
-        return All(eras, self, name, bind, body);
+        return All(eras, kind, self, name, bind, body);
       case "Lam":
         var eras = norm.eras;
         var name = norm.name;
@@ -440,7 +443,7 @@ function typecheck(term, type, defs, show = stringify, ctx = Nil(), locs = null)
         var name_var = Ann(true, Var(term.name+"#"+(ctx.size+1)), typv.bind);
         var body_typ = typv.body(self_var, name_var);
         if (term.eras !== typv.eras) {
-          throw () => Err(locs, ctx, "Type mismatch.");
+          throw () => Err(locs, ctx, "Type mismatch!");
         };
         var body_ctx = Ext({name:term.name,type:name_var.type}, ctx);
         typecheck(term.body(name_var), body_typ, defs, show, body_ctx);
@@ -502,4 +505,107 @@ module.exports = {
   typecheck,
   typesynth,
   equal,
+};
+
+function merge(a, b) {
+  var c = {};
+  for (var key in a) {
+    c[key] = a[key];
+  }
+  for (var key in b) {
+    c[key] = b[key];
+  }
+  return c;
+};
+
+function boxinfer(term, defs) {
+  switch (term.ctor) {
+    case "Var":
+      return Var(term.indx);
+    case "Ref":
+      //var got = defs[term.name];
+      //if (got) {
+        //return got.type;
+      //} else {
+        //throw () => Err(locs, ctx, "Undefined reference '" + term.name + "'.");
+      //}
+      return {};
+    case "Typ":
+      return {};
+    case "All":
+      var self_var = Ann(true, Var(term.self+"#"+ctx.size), term);
+      var name_var = Ann(true, Var(term.name+"#"+(ctx.size+1)), term.bind);
+      var body_ctx = Ext({name:term.self,type:self_var.type}, ctx);
+      var body_ctx = Ext({name:term.name,type:name_var.type}, body_ctx);
+      typecheck(term.bind, Typ(), defs, show, ctx);
+      typecheck(term.body(self_var,name_var), Typ(), defs, show, body_ctx);
+      return Typ();
+    case "Lam":
+      //λa. λb. a
+      
+      
+      
+    case "App":
+      var func_typ = reduce(typeinfer(term.func, defs, show, ctx), defs);
+      switch (func_typ.ctor) {
+        case "All":
+          var self_var = Ann(true, term.func, func_typ);
+          var name_var = Ann(true, term.argm, func_typ.bind);
+          typecheck(term.argm, func_typ.bind, defs, show, ctx);
+          var term_typ = func_typ.body(self_var, name_var);
+          if (func_typ.ctor === "All" && term.eras !== func_typ.eras) {
+            throw () => Err(locs, ctx, "Mismatched erasure.");
+          };
+          return term_typ;
+        default:
+          throw () => Err(locs, ctx, "Non-function application.");
+      };
+    case "Let":
+      var expr_typ = typeinfer(term.expr, defs, show, ctx);
+      var expr_var = Ann(true, Var(term.name+"#"+(ctx.size+1)), expr_typ);
+      var body_ctx = Ext({name:term.name,type:expr_var.type}, ctx);
+      var body_typ = typeinfer(term.body(expr_var), defs, show, body_ctx);
+      return body_typ;
+    case "Ann":
+      if (!term.done) {
+        typecheck(term.expr, term.type, defs, show, ctx);
+      }
+      return term.type;
+    case "Loc":
+      var locs = {from: term.from, upto: term.upto};
+      return typeinfer(term.expr, defs, show, ctx, locs);
+  }
+  throw () => Err(locs, ctx, "Can't infer type.");
+};
+
+
+var {defs} = parse(`
+  Nat: *
+    ∀(A: *) ∀(z: A) ∀(s: ∀(x: A) A) A
+
+  zer: Nat
+    λA λz λs z
+
+  suc: ∀(x: Nat) Nat
+    λx λA λz λs (s (((x A) z) s))
+  
+  main: Nat
+    (suc (suc (suc zer)))
+
+`, 0, "defs");
+
+
+for (var def in defs) {
+  console.log(def+": "+stringify(defs[def].type));
+  console.log("= "+stringify(defs[def].term));
+
+  try {
+    var checked = typecheck(defs[def].term, defs[def].type, defs);
+    console.log("~ "+stringify(normalize(defs[def].term, defs)));
+    //console.log(stringify(checked.type));
+  } catch (e) {
+    console.log(e().msg);
+  }
+
+  console.log("");
 };
