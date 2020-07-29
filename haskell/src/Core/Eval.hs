@@ -24,9 +24,9 @@ reduce term (Module defs) erase = go term
   where
     go term = --trace ("reduce: " ++ show term) $ 
       case term of
-        Var _ n          ->
+        Var _ n idx      ->
           -- trace (T.unpack $ "Var " `T.append` n) $ 
-          Var noLoc n
+          Var noLoc n idx
         Ref l n          ->
           --trace (T.unpack $ "Ref " `T.append` n) $ 
           case defs Map.!? n of
@@ -73,7 +73,7 @@ normalize term defs erased = runST (top term)
          | otherwise -> do
            modifySTRef' seen ((Set.insert termH) . (Set.insert normH))
            case norm of
-             Var l n          -> {- trace "norm Var" $ -} return $ Var l n
+             Var l n idx      -> {- trace "norm Var" $ -} return $ Var l n idx
              Ref l n          -> {- trace "norm Ref" $ -} return $ Ref l n
              Typ l            -> {- trace "norm Typ" $ -} return $ Typ l
              All _ e s n h b  -> {- trace "norm All" $ -} do

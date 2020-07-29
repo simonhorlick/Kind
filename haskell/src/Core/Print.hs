@@ -12,20 +12,20 @@ import           Core.Type
 
 term :: Term -> Text
 term t = let go = term in case t of
-  Var _ n              -> n
+  Var _ n _            -> n
   Ref _ n              -> n
   Typ _                -> "*"
   All _ e s n h b ->
     let bind = if e then "∀" else "Π"
-        body = go (b (Var noLoc $ T.snoc s '#') (Var noLoc $ T.snoc n '#'))
+        body = go (b (Var noLoc (T.snoc s '#') 0) (Var noLoc (T.snoc n '#') 0))
      in T.concat [bind, s, "(", n, ":", go h, ") ", body]
   Lam _ e n b          ->
     let bind = if e then "Λ" else "λ"
-        body = go (b (Var noLoc $ T.snoc n '#'))
+        body = go (b (Var noLoc (T.snoc n '#') 0))
     in T.concat [bind, n, " ", body]
   App _ True  f a      -> T.concat ["<", go f, " ", go a, ">"]
   App _ False f a      -> T.concat ["(", go f, " ", go a, ")"]
-  Let _ n x b        -> let body = go (b (Var noLoc $ T.snoc n '#')) in 
+  Let _ n x b        -> let body = go (b (Var noLoc (T.snoc n '#') 0)) in 
     T.concat ["$", n, "=", go x, ";", body]
   Ann _ d x t          -> T.concat [":", go t, " ", go x]
 

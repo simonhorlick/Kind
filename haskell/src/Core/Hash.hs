@@ -50,25 +50,6 @@ instance Show Hash where
 --hashText :: Text -> Hash
 --hashText txt = T.foldr (\c h -> (fromIntegral $ ord c) <> h) 0 txt
 
--- Caution: readVar must only be used on `Var`s with well-formed contents
--- i.e. Var #3
-readVar :: Integer -> Text -> Integer
-readVar dep n =
-  case (T.splitOn "#" n) of
-  x:"":[] -> 0
-  x:y:[]  -> let readInt = T.signed T.decimal in
-    case (readInt y) :: Either String (Integer,Text) of
-    Right (x,"") -> x
-    Left e       -> error $ concat 
-      ["Bad read of Var ", T.unpack n, ", with error \"", e,"\""]
-    Right (x,r)  -> error $ concat
-      ["Bad read of Var ", T.unpack n
-      , " with incomplete parse ", show x, " from ", T.unpack y
-      ]
-  _       -> error $ concat
-    ["Bad read of Var ", T.unpack n , " with bad '#' split" ]
-
-
 -- TODO: optimize with incremental hasher
 blake :: Term -> Blake.Digest 32
 blake term = Blake.hash $ [T.encodeUtf8 $ compText term 0]
@@ -82,24 +63,24 @@ compText term dep =
       var' = Var noLoc
       cons c s = T.cons c (T.pack $ show s)
    in case term of
-  Var _ n              -> let x = (readVar dep n) in
-    if x < 0
-    then T.concat ["^", T.pack $ show $ dep + x]
-    else T.concat ["#", T.pack $ show x]
+  Var _ _ idx          ->
+    if idx < 0
+    then T.concat ["^", T.pack $ show $ dep + idx]
+    else T.concat ["#", T.pack $ show idx]
   Ref _ n              -> T.concat ["&", n]
   Typ _                -> "*"
   All _ _ _ _ h b ->
     let bind = go h dep
-        s    = (var' $ cons '#' (0-dep-1))
-        x    = (var' $ cons '#' (0-dep-2))
+        s    = (var' "" (0-dep-1))
+        x    = (var' "" (0-dep-2))
         body = go (b s x) (dep + 2)
      in T.concat ["Π",bind,body]
   Lam _ _ n b          ->
-    let body = go (b (var' $ cons '#' (0-dep-1))) (dep+1)
+    let body = go (b (var' "" (0-dep-1))) (dep+1)
     in T.concat ["λ", body]
   App _ _ f a      -> T.concat ["@", go f dep, go a dep]
   Let _ _ x b        ->
     let expr = go x dep
-        body = go (b (var' $ cons '#' (0-dep-1))) (dep+1)
+        body = go (b (var' "" (0-dep-1))) (dep+1)
      in T.concat ["$",expr,body]
   Ann _ d x t          -> go x dep

@@ -9,7 +9,7 @@ import qualified Data.Map as M
 type Name = Text
 
 data Term
-  = Var Loc Text
+  = Var Loc Text Integer
   | Ref Loc Text
   | Typ Loc
   | All Loc Bool Name Name Term (Term -> Term -> Term)
