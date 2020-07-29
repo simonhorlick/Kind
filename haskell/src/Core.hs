@@ -7,13 +7,13 @@ import qualified Data.Text                  as T
 import qualified Data.Text.IO               as TIO
 import Control.Monad.Except
 
+import           Core.Rig
 import           Core.Eval
 import           Core.Hash
 import qualified Core.Parse      as Parse
 import qualified Core.Print      as Print
 import           Core.Type
 import           Core.Check
-
 
 parseTerm :: Text -> IO Term
 parseTerm txt = case parse Parse.term "" txt of

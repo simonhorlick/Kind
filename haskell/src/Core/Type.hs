@@ -1,5 +1,7 @@
 module Core.Type where
 
+import Core.Rig
+
 import Data.Text (Text)
 import qualified Data.Text as T hiding (find)
 
@@ -12,9 +14,9 @@ data Term
   = Var Loc Text Integer
   | Ref Loc Text
   | Typ Loc
-  | All Loc Bool Name Name Term (Term -> Term -> Term)
-  | Lam Loc Bool Name (Term -> Term)
-  | App Loc Bool Term Term
+  | All Loc Rig  Name Name Term (Term -> Term -> Term)
+  | Lam Loc Name (Term -> Term)
+  | App Loc Term Term
   | Let Loc Name Term (Term -> Term)
   | Ann Loc Bool Term Term
 
@@ -35,4 +37,3 @@ find ctx f = go ctx 0
   where
     go [] _     = Nothing
     go (x:xs) i = if f x then Just (x,i) else go xs (i+1)
-

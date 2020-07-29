@@ -19,40 +19,29 @@ import Control.Monad.ST.UnsafePerform
 
 import Debug.Trace
 
-reduce :: Term -> Module -> Bool -> Term
-reduce term (Module defs) erase = go term
-  where
-    go term = --trace ("reduce: " ++ show term) $ 
-      case term of
-        Var _ n idx      ->
-          -- trace (T.unpack $ "Var " `T.append` n) $ 
-          Var noLoc n idx
-        Ref l n          ->
-          --trace (T.unpack $ "Ref " `T.append` n) $ 
-          case defs Map.!? n of
-            Just (Expr _ _ got@(Ref _ m)) -> got
-            Just (Expr _ _ got)           -> go got
-            Nothing                       -> Ref l n
-        Typ _            -> {-trace "reduce Type" $-} Typ noLoc
-        All _ _ _ _ _ _  -> {-trace "reduce All"  $-} term
-        Lam _ e n b      ->
-          -- trace "reduce Lam"  $ 
-          if e && erase then go (Lam noLoc False "" (\x -> x)) else term
-        App _ e f a      -> 
-          -- trace "reduce App" $ 
-          if e && erase then go f else
-            case go f of
-              Lam _ e n b  -> -- trace ("App Lam: " ++ show f) $ 
-                go (b a)
-              x          -> -- trace ("App f: " ++ show f) $ 
-                term
-        Let _ n x b      -> go (b x)
-        Ann _ _ x t      -> go x
+reduce :: Term -> Module -> Term
+reduce term mod@(Module defs) = case term of
+  Var _ n idx      ->
+    Var noLoc n idx
+  Ref l n          ->
+    case defs Map.!? n of
+      -- Just (Expr _ _ got@(Ref _ m)) -> got
+      Just (Expr _ _ got)           -> reduce got mod
+      Nothing                       -> Ref l n
+  Typ _            -> Typ noLoc
+  All _ _ _ _ _ _  -> term
+  Lam _ n b        -> term
+  App _ f a        -> 
+    case reduce f mod of
+      Lam _ n b -> reduce (b a) mod
+      x         -> term
+  Let _ n x b      -> reduce (b x) mod
+  Ann _ _ x t      -> reduce x mod
 
 
 -- Normalize
-normalize :: Term -> Module -> Bool -> Term
-normalize term defs erased = runST (top term)
+normalize :: Term -> Module -> Term
+normalize term defs = runST (top term)
   where
     top :: Term -> ST s Term
     top term = do
@@ -62,7 +51,7 @@ normalize term defs erased = runST (top term)
 
     go :: Term -> (STRef s (Set Hash)) -> ST s Term
     go term seen = {- trace "go" $ -} do
-      let norm  = reduce term defs erased
+      let norm  = reduce term defs
       let termH = hash term
       let normH = hash norm
       -- traceM $ concat ["term: ",show term, " hash: ",show termH]
@@ -76,15 +65,16 @@ normalize term defs erased = runST (top term)
              Var l n idx      -> {- trace "norm Var" $ -} return $ Var l n idx
              Ref l n          -> {- trace "norm Ref" $ -} return $ Ref l n
              Typ l            -> {- trace "norm Typ" $ -} return $ Typ l
-             All _ e s n h b  -> {- trace "norm All" $ -} do
+             All _ r s n h b  -> {- trace "norm All" $ -} do
                bind <- go h seen
-               return $ All noLoc e s n bind (\s x -> unsafePerformST $ go (b s x) seen)
-             Lam _ e n b      -> trace "norm Lam" $ traceShow norm $ do
-               return $ Lam noLoc e n (\x -> unsafePerformST $ go (b x) seen)
-             App _ e f a      -> trace "norm App" $ do
+               return $ All noLoc r s n bind (\s x -> unsafePerformST $ go (b s x) seen)
+             Lam _ n b        -> trace "norm Lam" $ traceShow norm $ do
+               return $ Lam noLoc n (\x -> unsafePerformST $ go (b x) seen)
+             App _ f a        -> trace "norm App" $ do
               func <- go f seen
               argm <- go a seen
-              return $ App noLoc e func argm
+              return $ App noLoc func argm
+             -- Should not happen
              Let _ n x b      -> trace "norm Let" $ go (b x) seen
              Ann _ _ x t      -> trace "norm Ann" $ go x seen
 

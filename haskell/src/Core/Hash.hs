@@ -11,6 +11,7 @@ import qualified Data.Text.Encoding as T
 import           Data.Word
 import           Data.Char
 
+import           Core.Rig
 import           Core.Type
 import           Core.Print
 
@@ -58,9 +59,9 @@ hash :: Term -> Hash
 hash term = Hash $ BA.convert $ blake term
 
 compText :: Term -> Integer -> Text
-compText term dep = 
+compText term dep =
   let go = compText
-      var' = Var noLoc
+      var = Var noLoc
       cons c s = T.cons c (T.pack $ show s)
    in case term of
   Var _ _ idx          ->
@@ -69,18 +70,19 @@ compText term dep =
     else T.concat ["#", T.pack $ show idx]
   Ref _ n              -> T.concat ["&", n]
   Typ _                -> "*"
-  All _ _ _ _ h b ->
+  All _ r _ _ h b ->
     let bind = go h dep
-        s    = (var' "" (0-dep-1))
-        x    = (var' "" (0-dep-2))
+        s    = (var "" (0-dep-1))
+        x    = (var "" (0-dep-2))
         body = go (b s x) (dep + 2)
-     in T.concat ["Π",bind,body]
-  Lam _ _ n b          ->
-    let body = go (b (var' "" (0-dep-1))) (dep+1)
+        q    = case r of {Zero -> "0"; One -> "1"; Many -> "ω";}
+     in T.concat [q,"Π",bind,body]
+  Lam _ n b          ->
+    let body = go (b (var "" (0-dep-1))) (dep+1)
     in T.concat ["λ", body]
-  App _ _ f a      -> T.concat ["@", go f dep, go a dep]
+  App _ f a      -> T.concat ["@", go f dep, go a dep]
   Let _ _ x b        ->
     let expr = go x dep
-        body = go (b (var' "" (0-dep-1))) (dep+1)
+        body = go (b (var "" (0-dep-1))) (dep+1)
      in T.concat ["$",expr,body]
-  Ann _ d x t          -> go x dep
+  Ann _ _ x _          -> go x dep

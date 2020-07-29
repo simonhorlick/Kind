@@ -8,6 +8,7 @@ import           Data.Text (Text)
 import qualified Data.Text as T hiding (find)
 import           Prelude   hiding (print)
 
+import           Core.Rig
 import           Core.Type
 
 term :: Term -> Text
@@ -15,18 +16,19 @@ term t = let go = term in case t of
   Var _ n _            -> n
   Ref _ n              -> n
   Typ _                -> "*"
-  All _ e s n h b ->
-    let bind = if e then "∀" else "Π"
-        body = go (b (Var noLoc (T.snoc s '#') 0) (Var noLoc (T.snoc n '#') 0))
-     in T.concat [bind, s, "(", n, ":", go h, ") ", body]
-  Lam _ e n b          ->
-    let bind = if e then "Λ" else "λ"
-        body = go (b (Var noLoc (T.snoc n '#') 0))
-    in T.concat [bind, n, " ", body]
-  App _ True  f a      -> T.concat ["<", go f, " ", go a, ">"]
-  App _ False f a      -> T.concat ["(", go f, " ", go a, ")"]
-  Let _ n x b        -> let body = go (b (Var noLoc (T.snoc n '#') 0)) in 
-    T.concat ["$", n, "=", go x, ";", body]
+  All _ r s n h b ->
+    let body = go (b (Var noLoc (T.snoc s '#') 0) (Var noLoc (T.snoc n '#') 0))
+        self = if s == "" then "" else T.concat ["$(", s, "). "]
+     in case r of
+          Zero -> T.concat [self, "∀(", n, ":", go h, "). ", body]
+          One  -> T.concat [self, "(", n, ":", go h, ") ⊸ ", body]
+          Many -> T.concat [self, "(", n, ":", go h, ") → ", body]
+  Lam _ n b          ->
+    let body = go (b (Var noLoc (T.snoc n '#') 0))
+    in T.concat ["λ", n, ". ", body]
+  App _ f a      -> T.concat ["(", go f, " ", go a, ")"]
+  Let _ n x b        -> let body = go (b (Var noLoc (T.snoc n '#') 0)) in
+    T.concat ["let ", n, "=", go x, ";", body]
   Ann _ d x t          -> T.concat [":", go t, " ", go x]
 
 instance Show Term where
@@ -41,11 +43,10 @@ instance Show Expr where
 
 modl :: Module -> Text
 modl (Module defs) = go $ snd <$> M.toList defs
-  where 
+  where
     go [] = ""
     go (x:[]) = Core.Print.expr x
     go (x:xs) = T.concat [Core.Print.expr x, "\n", go xs]
 
 instance Show Module where
   show x = T.unpack (Core.Print.modl x)
-
