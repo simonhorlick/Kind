@@ -857,6 +857,7 @@ function compile(main, defs, only_expression = false) {
     code += "        switch (p.query) {\n";
     code += "          case 'print': console.log(p.param); run(p.then(1)).then(res); break;\n";
     code += "          case 'get_line': rdl.question('', (line) => run(p.then(line)).then(res)); break;\n";
+    code += "          case 'get_monotonic_clock': run(p.then(`${process.hrtime.bigint()}`)).then(res); break;\n";
     code += "         }\n";
     code += "      });\n";
     code += "    }\n";
