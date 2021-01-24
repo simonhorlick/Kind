@@ -4046,6 +4046,7 @@ Fm: IO(Unit)
     let _ = Fm.checker.code;
     let _ = Fm.Term.read;
     let _ = Fm.compute.io.one;
+    let _ = LanguageServer.check;
     //let t = Fm.Core.read("(#f #x (f (f x)) #f #x (f (f x)))");
     return Unit.new;
   }
