@@ -1,0 +1,50 @@
+// on_change handles an update to a source file by re-parsing and running the
+// type checker. A list of diagnostics is returned so that the parse and
+// typecheck errors can be displayed to the user.
+Lsp.on_change(
+  uri: String,
+  content: String,
+  defs: Fm.Defs
+): Pair(Fm.Defs, List(Lsp.Diagnostic))
+  // Parse the changes in this file.
+  let parsed = Fm.Parser.file(uri, content, Map.new!, 0, content)
+
+  case parsed {
+    error:
+      // If there's a parse error then immediately return that parse error.
+      // There's no need to typecheck.
+      let diagnostics = [Lsp.Diagnostic.new(
+        parsed.err,
+        uri,
+        Nat.to_u32(parsed.idx),
+        Nat.to_u32(parsed.idx))]
+      {defs, diagnostics}
+
+    value:
+      // Remove all of the defs that exist for the file `uri`. This is to
+      // ensure that defs are removed properly when they are no longer in the
+      // file.
+      let existingDefs = Lsp.defs(defs, uri)
+
+      let namesToDelete = List.map!!((x) open x; x.name, existingDefs)
+
+      let otherDefs = List.for(_, namesToDelete, _, defs,
+        (d,m) Map.delete!(Fm.Name.to_bits(d),m)
+      )
+
+      // Merge the parsed defs with all the existing defs. Note the order of
+      // arguments here - in case of a collision union takes the value in the
+      // first argument.
+      let currentDefs = Map.union!(parsed.val, otherDefs)
+
+      let defsToCheck = List.mapped!(
+        Map.keys!(parsed.val), _, Fm.Name.from_bits)
+
+      // TODO: re-check anything that also depends on these `defsToCheck`.
+
+      let checked = IO.purify!(
+        Fm.Synth.many(defsToCheck, currentDefs)
+      );
+
+      {checked, Lsp.diagnostics(checked)}
+  }
