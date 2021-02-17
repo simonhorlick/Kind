@@ -5,5 +5,7 @@ Fm: IO(Unit)
     let _ = Fm.checker.io.file;
     let _ = Fm.checker.code;
     let _ = Fm.Term.read;
+    let _ = Map.union;
+    let _ = LanguageServer.check;
     return Unit.new;
   }

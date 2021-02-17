@@ -1,0 +1,5 @@
+// report collects typechecking errors from the provided definitions.
+LanguageServer.make_report(
+    defs: Fm.Defs,
+    names: List(Fm.Name)): LanguageServer.Report
+  LanguageServer.make_report.go(defs, names, [], [])

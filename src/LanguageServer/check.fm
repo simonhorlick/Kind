@@ -1,0 +1,24 @@
+LanguageServer.check(
+  defs: Fm.Defs
+): List(LanguageServer.Diagnostic)
+  let names = List.mapped<_>(Map.keys<_>(defs))<_>(Fm.Name.from_bits);
+
+  // Collect any errors from typechecking.
+  let report = LanguageServer.make_report(defs, names);
+  open report
+
+  // Attach source locations, if available.
+  // FIXME: goals do not have source locations.
+  List.mapped<_>(report.errors)<_>((pair)
+    open pair
+    let uri = pair.fst
+    let err = pair.snd
+    case Fm.Error.origin(err) as origin {
+      none: LanguageServer.Diagnostic.new(Fm.Error.show(err, defs), uri, 0, 0),
+      some: case origin.value {
+        new:
+          LanguageServer.Diagnostic.new(Fm.Error.show(err, defs),
+            uri, origin.value.fst, origin.value.snd)
+      },
+    }
+  )

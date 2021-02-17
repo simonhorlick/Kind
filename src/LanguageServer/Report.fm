@@ -1,0 +1,7 @@
+// Report aggregates typechecking errors.
+type LanguageServer.Report {
+  new(
+    types: List(Pair(Fm.Name, Fm.Term)),
+    errors: List(Pair(String, Fm.Error)), // Source uri and error.
+  )
+}

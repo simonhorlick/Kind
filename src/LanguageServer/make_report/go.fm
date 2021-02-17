@@ -1,0 +1,48 @@
+LanguageServer.make_report.go(
+    defs: Fm.Defs,
+    names: List(Fm.Name),
+    errs: List(Pair(String, Fm.Error)),
+    typs: List(Pair(Fm.Name, Fm.Term))
+): LanguageServer.Report
+  case names {
+    // Base-case. We've handled all the definitions so return all of the errors.
+    nil: LanguageServer.Report.new(typs, errs),
+
+    cons:
+      let name = names.head;
+
+      // Get the top-level definition `name` from `defs`.
+      case Fm.get<_>(name, defs) as got {
+        // TODO(simon): Should we handle this case?
+        none: LanguageServer.make_report.go(defs, names.tail, errs, typs),
+        some: case got.value {
+          new:
+            let typs = List.append<_>(typs, {name, got.value.type});
+
+            // Inspect the typechecking status of this term, if typechecking
+            // failed then report it.
+            case got.value.stat {
+              init: LanguageServer.make_report.go(defs, names.tail, errs, typs),
+              wait: LanguageServer.make_report.go(defs, names.tail, errs, typs),
+              done: LanguageServer.make_report.go(defs, names.tail, errs, typs),
+
+              // Retrieve the list of typechecking errors attached to this term.
+              fail: case got.value.stat.errors {
+                nil: LanguageServer.make_report.go(defs, names.tail, errs, typs),
+                cons:
+                  let rel_errs = Fm.Error.relevant(got.value.stat.errors,
+                    Bool.false);
+                  case rel_errs {
+                    nil:
+                      LanguageServer.make_report.go(defs, names.tail, errs, typs),
+                    cons:
+                      let added_errs = List.concat<_>(errs, List.map<_,_>((e) {got.value.file, e}, rel_errs));
+                      LanguageServer.make_report.go(defs, names.tail, added_errs,
+                        typs)
+                  }
+              }
+            }
+        }
+      }
+  }
+

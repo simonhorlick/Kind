@@ -23496,17 +23496,284 @@ module.exports = (function() {
         return $9456;
     };
     const Fm$Term$read = x0 => Fm$Term$read$(x0);
+
+    function Map$union$(_a$2, _b$3) {
+        var self = _a$2;
+        switch (self._) {
+            case 'Map.new':
+                var $9466 = _b$3;
+                var $9465 = $9466;
+                break;
+            case 'Map.tie':
+                var $9467 = self.val;
+                var $9468 = self.lft;
+                var $9469 = self.rgt;
+                var self = _b$3;
+                switch (self._) {
+                    case 'Map.new':
+                        var $9471 = _a$2;
+                        var $9470 = $9471;
+                        break;
+                    case 'Map.tie':
+                        var $9472 = self.val;
+                        var $9473 = self.lft;
+                        var $9474 = self.rgt;
+                        var self = $9467;
+                        switch (self._) {
+                            case 'Maybe.none':
+                                var $9476 = Map$tie$($9472, Map$union$($9468, $9473), Map$union$($9469, $9474));
+                                var $9475 = $9476;
+                                break;
+                            case 'Maybe.some':
+                                var $9477 = self.value;
+                                var $9478 = Map$tie$($9467, Map$union$($9468, $9473), Map$union$($9469, $9474));
+                                var $9475 = $9478;
+                                break;
+                        };
+                        var $9470 = $9475;
+                        break;
+                };
+                var $9465 = $9470;
+                break;
+        };
+        return $9465;
+    };
+    const Map$union = x0 => x1 => Map$union$(x0, x1);
+
+    function LanguageServer$Report$new$(_types$1, _errors$2) {
+        var $9479 = ({
+            _: 'LanguageServer.Report.new',
+            'types': _types$1,
+            'errors': _errors$2
+        });
+        return $9479;
+    };
+    const LanguageServer$Report$new = x0 => x1 => LanguageServer$Report$new$(x0, x1);
+
+    function List$pure$(_x$2) {
+        var $9480 = List$cons$(_x$2, List$nil);
+        return $9480;
+    };
+    const List$pure = x0 => List$pure$(x0);
+
+    function List$append$(_as$2, _a$3) {
+        var self = _as$2;
+        switch (self._) {
+            case 'List.nil':
+                var $9482 = List$pure$(_a$3);
+                var $9481 = $9482;
+                break;
+            case 'List.cons':
+                var $9483 = self.head;
+                var $9484 = self.tail;
+                var $9485 = List$cons$($9483, List$append$($9484, _a$3));
+                var $9481 = $9485;
+                break;
+        };
+        return $9481;
+    };
+    const List$append = x0 => x1 => List$append$(x0, x1);
+
+    function List$map$(_f$3, _as$4) {
+        var self = _as$4;
+        switch (self._) {
+            case 'List.nil':
+                var $9487 = List$nil;
+                var $9486 = $9487;
+                break;
+            case 'List.cons':
+                var $9488 = self.head;
+                var $9489 = self.tail;
+                var $9490 = List$cons$(_f$3($9488), List$map$(_f$3, $9489));
+                var $9486 = $9490;
+                break;
+        };
+        return $9486;
+    };
+    const List$map = x0 => x1 => List$map$(x0, x1);
+
+    function LanguageServer$make_report$go$(_defs$1, _names$2, _errs$3, _typs$4) {
+        var LanguageServer$make_report$go$ = (_defs$1, _names$2, _errs$3, _typs$4) => ({
+            ctr: 'TCO',
+            arg: [_defs$1, _names$2, _errs$3, _typs$4]
+        });
+        var LanguageServer$make_report$go = _defs$1 => _names$2 => _errs$3 => _typs$4 => LanguageServer$make_report$go$(_defs$1, _names$2, _errs$3, _typs$4);
+        var arg = [_defs$1, _names$2, _errs$3, _typs$4];
+        while (true) {
+            let [_defs$1, _names$2, _errs$3, _typs$4] = arg;
+            var R = (() => {
+                var self = _names$2;
+                switch (self._) {
+                    case 'List.nil':
+                        var $9491 = LanguageServer$Report$new$(_typs$4, _errs$3);
+                        return $9491;
+                    case 'List.cons':
+                        var $9492 = self.head;
+                        var $9493 = self.tail;
+                        var _name$7 = $9492;
+                        var self = Fm$get$(_name$7, _defs$1);
+                        switch (self._) {
+                            case 'Maybe.none':
+                                var $9495 = LanguageServer$make_report$go$(_defs$1, $9493, _errs$3, _typs$4);
+                                var $9494 = $9495;
+                                break;
+                            case 'Maybe.some':
+                                var $9496 = self.value;
+                                var self = $9496;
+                                switch (self._) {
+                                    case 'Fm.Def.new':
+                                        var $9498 = self.file;
+                                        var $9499 = self.code;
+                                        var $9500 = self.orig;
+                                        var $9501 = self.name;
+                                        var $9502 = self.term;
+                                        var $9503 = self.type;
+                                        var $9504 = self.isct;
+                                        var $9505 = self.arit;
+                                        var $9506 = self.stat;
+                                        var _typs$18 = List$append$(_typs$4, Pair$new$(_name$7, $9503));
+                                        var self = $9506;
+                                        switch (self._) {
+                                            case 'Fm.Status.init':
+                                                var $9508 = LanguageServer$make_report$go$(_defs$1, $9493, _errs$3, _typs$18);
+                                                var $9507 = $9508;
+                                                break;
+                                            case 'Fm.Status.wait':
+                                                var $9509 = LanguageServer$make_report$go$(_defs$1, $9493, _errs$3, _typs$18);
+                                                var $9507 = $9509;
+                                                break;
+                                            case 'Fm.Status.done':
+                                                var $9510 = LanguageServer$make_report$go$(_defs$1, $9493, _errs$3, _typs$18);
+                                                var $9507 = $9510;
+                                                break;
+                                            case 'Fm.Status.fail':
+                                                var $9511 = self.errors;
+                                                var self = $9511;
+                                                switch (self._) {
+                                                    case 'List.nil':
+                                                        var $9513 = LanguageServer$make_report$go$(_defs$1, $9493, _errs$3, _typs$18);
+                                                        var $9512 = $9513;
+                                                        break;
+                                                    case 'List.cons':
+                                                        var $9514 = self.head;
+                                                        var $9515 = self.tail;
+                                                        var _rel_errs$22 = Fm$Error$relevant$($9511, Bool$false);
+                                                        var self = _rel_errs$22;
+                                                        switch (self._) {
+                                                            case 'List.nil':
+                                                                var $9517 = LanguageServer$make_report$go$(_defs$1, $9493, _errs$3, _typs$18);
+                                                                var $9516 = $9517;
+                                                                break;
+                                                            case 'List.cons':
+                                                                var $9518 = self.head;
+                                                                var $9519 = self.tail;
+                                                                var _added_errs$25 = List$concat$(_errs$3, List$map$((_e$25 => {
+                                                                    var $9521 = Pair$new$($9498, _e$25);
+                                                                    return $9521;
+                                                                }), _rel_errs$22));
+                                                                var $9520 = LanguageServer$make_report$go$(_defs$1, $9493, _added_errs$25, _typs$18);
+                                                                var $9516 = $9520;
+                                                                break;
+                                                        };
+                                                        var $9512 = $9516;
+                                                        break;
+                                                };
+                                                var $9507 = $9512;
+                                                break;
+                                        };
+                                        var $9497 = $9507;
+                                        break;
+                                };
+                                var $9494 = $9497;
+                                break;
+                        };
+                        return $9494;
+                };
+            })();
+            if (R.ctr === 'TCO') arg = R.arg;
+            else return R;
+        }
+    };
+    const LanguageServer$make_report$go = x0 => x1 => x2 => x3 => LanguageServer$make_report$go$(x0, x1, x2, x3);
+
+    function LanguageServer$make_report$(_defs$1, _names$2) {
+        var $9522 = LanguageServer$make_report$go$(_defs$1, _names$2, List$nil, List$nil);
+        return $9522;
+    };
+    const LanguageServer$make_report = x0 => x1 => LanguageServer$make_report$(x0, x1);
+
+    function LanguageServer$Diagnostic$new$(_message$1, _file$2, _from$3, _upto$4) {
+        var $9523 = ({
+            _: 'LanguageServer.Diagnostic.new',
+            'message': _message$1,
+            'file': _file$2,
+            'from': _from$3,
+            'upto': _upto$4
+        });
+        return $9523;
+    };
+    const LanguageServer$Diagnostic$new = x0 => x1 => x2 => x3 => LanguageServer$Diagnostic$new$(x0, x1, x2, x3);
+
+    function LanguageServer$check$(_defs$1) {
+        var _names$2 = List$mapped$(Map$keys$(_defs$1), Fm$Name$from_bits);
+        var _report$3 = LanguageServer$make_report$(_defs$1, _names$2);
+        var self = _report$3;
+        switch (self._) {
+            case 'LanguageServer.Report.new':
+                var $9525 = self.types;
+                var $9526 = self.errors;
+                var $9527 = List$mapped$($9526, (_pair$6 => {
+                    var self = _pair$6;
+                    switch (self._) {
+                        case 'Pair.new':
+                            var $9529 = self.fst;
+                            var $9530 = self.snd;
+                            var _uri$9 = $9529;
+                            var _err$10 = $9530;
+                            var self = Fm$Error$origin$(_err$10);
+                            switch (self._) {
+                                case 'Maybe.none':
+                                    var $9532 = LanguageServer$Diagnostic$new$(Fm$Error$show$(_err$10, _defs$1), _uri$9, 0n, 0n);
+                                    var $9531 = $9532;
+                                    break;
+                                case 'Maybe.some':
+                                    var $9533 = self.value;
+                                    var self = $9533;
+                                    switch (self._) {
+                                        case 'Pair.new':
+                                            var $9535 = self.fst;
+                                            var $9536 = self.snd;
+                                            var $9537 = LanguageServer$Diagnostic$new$(Fm$Error$show$(_err$10, _defs$1), _uri$9, $9535, $9536);
+                                            var $9534 = $9537;
+                                            break;
+                                    };
+                                    var $9531 = $9534;
+                                    break;
+                            };
+                            var $9528 = $9531;
+                            break;
+                    };
+                    return $9528;
+                }));
+                var $9524 = $9527;
+                break;
+        };
+        return $9524;
+    };
+    const LanguageServer$check = x0 => LanguageServer$check$(x0);
     const Fm = (() => {
         var __$1 = Fm$to_core$io$one;
         var __$2 = Fm$checker$io$one;
         var __$3 = Fm$checker$io$file;
         var __$4 = Fm$checker$code;
         var __$5 = Fm$Term$read;
-        var $9465 = IO$monad$((_m$bind$6 => _m$pure$7 => {
-            var $9466 = _m$pure$7;
-            return $9466;
+        var __$6 = Map$union;
+        var __$7 = LanguageServer$check;
+        var $9538 = IO$monad$((_m$bind$8 => _m$pure$9 => {
+            var $9539 = _m$pure$9;
+            return $9539;
         }))(Unit$new);
-        return $9465;
+        return $9538;
     })();
     return {
         '$main$': () => run(Fm),
@@ -23917,6 +24184,15 @@ module.exports = (function() {
         'IO.purify': IO$purify,
         'Fm.checker.code': Fm$checker$code,
         'Fm.Term.read': Fm$Term$read,
+        'Map.union': Map$union,
+        'LanguageServer.Report.new': LanguageServer$Report$new,
+        'List.pure': List$pure,
+        'List.append': List$append,
+        'List.map': List$map,
+        'LanguageServer.make_report.go': LanguageServer$make_report$go,
+        'LanguageServer.make_report': LanguageServer$make_report,
+        'LanguageServer.Diagnostic.new': LanguageServer$Diagnostic$new,
+        'LanguageServer.check': LanguageServer$check,
         'Fm': Fm,
     };
 })();
