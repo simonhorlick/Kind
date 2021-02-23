@@ -1,0 +1,25 @@
+// fib computes the nth term of the Fibonacci sequence, where each number
+// is the sum of the two preceding ones, starting from 0 and 1.
+Example.fib(n: Nat): Nat
+  if Nat.eql(n, 0) then
+    0
+  else if Nat.eql(n, 1) then
+    1
+  else
+    // Example.fib(n - 1) + Example.fib(n - 2)
+    Nat.add(Example.fib(Nat.pred(n)), Example.fib(Nat.pred(Nat.pred(n))))
+
+Example.fib.test: IO(Unit)
+  // 0 1 2 3 4 5 6 7
+  // 0 1 1 2 3 5 8 13
+  // expect: 8
+  IO.print(Nat.show(Example.fib(6)))
+
+
+Example.fib.bench: IO(Unit)
+  do IO {
+    var start = IO.monotonic_clock()
+    IO.print(Nat.show(Example.fib(6)))
+    var stop = IO.monotonic_clock()
+    IO.print(Duration.show(Duration.interval(start, stop)))
+  }
