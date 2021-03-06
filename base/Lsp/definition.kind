@@ -1,11 +1,11 @@
 // definition looks up what appears in the source file `uri` at the given
-// `offset`. If there is a Fm.Term.ref spanning that location then the
+// `offset`. If there is a Kind.Term.ref spanning that location then the
 // definition of that term is returned.
 Lsp.definition(
   uri: String,
   offset: Nat,
-  defs: Fm.Defs
-): Maybe(Fm.Def)
+  defs: Kind.Defs
+): Maybe(Kind.Def)
   let ds = Lsp.defs(defs, uri)
 
   // For each def in `uri` find all the definitions that it references.
@@ -26,5 +26,5 @@ Lsp.definition(
       // Take the first match.
       open matches.head as ref
       
-      Fm.get!(Fm.Name.read(ref.name), defs)
+      Kind.get!(Kind.Name.read(ref.name), defs)
   }

@@ -19,12 +19,12 @@ CompletionItemKind.Function: U32
 Lsp.on_completions(
   uri: String, 
   position: Lsp.Position,
-  defs: Fm.Defs
+  defs: Kind.Defs
 ): List(Lsp.Completion)
   // TODO: Take the context into account, rather than just returning all
   // possible names.
   // TODO: Include local variables from let expressions, case, etc.
-  let names = List.map!!(Fm.Name.from_bits, Map.keys!(defs))
+  let names = List.map!!(Kind.Name.from_bits, Map.keys!(defs))
 
   List.map!!(
     (x) Lsp.Completion.new(x, CompletionItemKind.Function, x),

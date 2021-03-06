@@ -1,5 +1,5 @@
 // defs returns a List of defs that exist in the given file.
-Lsp.defs(defs: Fm.Defs, uri: String): List(Fm.Def)
+Lsp.defs(defs: Kind.Defs, uri: String): List(Kind.Def)
   List.filter!(
     (d) open d; String.eql(d.file, uri),
     Map.values!(defs)
