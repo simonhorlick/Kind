@@ -13,7 +13,6 @@ Lsp.definition(
 
   // Find references that span the requested offset.
   let matches = List.filter!((x)
-    // offset >= x.range.fst && offset <= x.range.snd,
     open x
     Bool.and(
       Nat.gte(offset, Pair.fst!!(x.range)),

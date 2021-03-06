@@ -13,7 +13,6 @@ Lsp.diagnostics.make_report.go(
 
       // Get the top-level definition `name` from `defs`.
       case Kind.get<_>(name, defs) as got {
-        // TODO(simon): Should we handle this case?
         none: Lsp.diagnostics.make_report.go(defs, names.tail, errs, typs),
         some: case got.value {
           new:
