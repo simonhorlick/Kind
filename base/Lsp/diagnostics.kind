@@ -1,8 +1,8 @@
 Lsp.diagnostics.make_report.go(
-    defs: Fm.Defs,
-    names: List(Fm.Name),
-    errs: List(Pair(String, Fm.Error)),
-    typs: List(Pair(Fm.Name, Fm.Term))
+    defs: Kind.Defs,
+    names: List(Kind.Name),
+    errs: List(Pair(String, Kind.Error)),
+    typs: List(Pair(Kind.Name, Kind.Term))
 ): Lsp.Report
   case names {
     // Base-case. We've handled all the definitions so return all of the errors.
@@ -12,7 +12,7 @@ Lsp.diagnostics.make_report.go(
       let name = names.head;
 
       // Get the top-level definition `name` from `defs`.
-      case Fm.get<_>(name, defs) as got {
+      case Kind.get<_>(name, defs) as got {
         // TODO(simon): Should we handle this case?
         none: Lsp.diagnostics.make_report.go(defs, names.tail, errs, typs),
         some: case got.value {
@@ -30,7 +30,7 @@ Lsp.diagnostics.make_report.go(
               fail: case got.value.stat.errors {
                 nil: Lsp.diagnostics.make_report.go(defs, names.tail, errs, typs),
                 cons:
-                  let rel_errs = Fm.Error.relevant(got.value.stat.errors,
+                  let rel_errs = Kind.Error.relevant(got.value.stat.errors,
                     Bool.false);
                   case rel_errs {
                     nil:
@@ -50,18 +50,18 @@ Lsp.diagnostics.make_report.go(
 
 // make_report collects typechecking errors from the provided definitions.
 Lsp.diagnostics.make_report(
-    defs: Fm.Defs,
-    names: List(Fm.Name)): Lsp.Report
+    defs: Kind.Defs,
+    names: List(Kind.Name)): Lsp.Report
   Lsp.diagnostics.make_report.go(defs, names, [], [])
 
 // check maps any typechecking errors to diagnostics.
 Lsp.diagnostics(
-  defs: Fm.Defs
+  defs: Kind.Defs
 ): List(Lsp.Diagnostic)
   // TODO: Return a Map(uri, Diagnostics[]) that contains a key for every uri
   // we know about - it's important that we send back empty diagnostics for
   // files that have no errors to display.
-  let names = List.mapped<_>(Map.keys<_>(defs))<_>(Fm.Name.from_bits);
+  let names = List.mapped<_>(Map.keys<_>(defs))<_>(Kind.Name.from_bits);
 
   // Collect any errors from typechecking.
   open Lsp.diagnostics.make_report(defs, names) as report
@@ -72,14 +72,14 @@ Lsp.diagnostics(
     open pair
     let uri = pair.fst
     let err = pair.snd
-    case Fm.Error.origin(err) as origin {
-      none: Lsp.Diagnostic.new(Fm.Error.show(err, defs), uri, 0u, 0u),
+    case Kind.Error.origin(err) as origin {
+      none: Lsp.Diagnostic.new(Kind.Error.show(err, defs), uri, 0u, 0u),
       some: case origin.value {
         new:
           let from = Nat.to_u32(origin.value.fst)
           let upto = Nat.to_u32(origin.value.snd)
           Lsp.Diagnostic.new(
-            Fm.Error.show(err, defs), uri, from, upto)
+            Kind.Error.show(err, defs), uri, from, upto)
       },
     }
   )

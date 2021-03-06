@@ -4,10 +4,10 @@
 Lsp.on_change(
   uri: String,
   content: String,
-  defs: Fm.Defs
-): Pair(Fm.Defs, List(Lsp.Diagnostic))
+  defs: Kind.Defs
+): Pair(Kind.Defs, List(Lsp.Diagnostic))
   // Parse the changes in this file.
-  let parsed = Fm.Parser.file(uri, content, Map.new!, 0, content)
+  let parsed = Kind.Parser.file(uri, content, Map.new!, 0, content)
 
   case parsed {
     error:
@@ -29,7 +29,7 @@ Lsp.on_change(
       let namesToDelete = List.map!!((x) open x; x.name, existingDefs)
 
       let otherDefs = List.for(_, namesToDelete, _, defs,
-        (d,m) Map.delete!(Fm.Name.to_bits(d),m)
+        (d,m) Map.delete!(Kind.Name.to_bits(d),m)
       )
 
       // Merge the parsed defs with all the existing defs. Note the order of
@@ -38,12 +38,12 @@ Lsp.on_change(
       let currentDefs = Map.union!(parsed.val, otherDefs)
 
       let defsToCheck = List.mapped!(
-        Map.keys!(parsed.val), _, Fm.Name.from_bits)
+        Map.keys!(parsed.val), _, Kind.Name.from_bits)
 
       // TODO: re-check anything that also depends on these `defsToCheck`.
 
       let checked = IO.purify!(
-        Fm.Synth.many(defsToCheck, currentDefs)
+        Kind.Synth.many(defsToCheck, currentDefs)
       );
 
       {checked, Lsp.diagnostics(checked)}
