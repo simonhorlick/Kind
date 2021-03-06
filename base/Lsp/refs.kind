@@ -10,7 +10,8 @@ type Lsp.Ref {
 
 Lsp.refs.go(term: Kind.Term, start: Nat, end: Nat)
   : List(Lsp.Ref)
-  // Traverse the tree of Kind.Terms and collect any refs.
+  // Traverse the tree of Kind.Terms and collect any refs. If we come across
+  // a Kind.Term.orig then we use that for the direct child.
   case term {
     ref: [
       Lsp.Ref.new(Pair.new!!(start, end), Kind.Name.show(term.name))
