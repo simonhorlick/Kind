@@ -1,0 +1,9 @@
+// Diagnostic is a compiler error or warning with an associated source range.
+type Lsp.Diagnostic {
+  new(
+    message: String,
+    file: String,
+    from: U32,
+    upto: U32,
+  )
+}
