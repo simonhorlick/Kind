@@ -5,5 +5,9 @@ Kind: IO(Unit)
     let _ = Kind.checker.io.file;
     let _ = Kind.checker.code;
     let _ = Kind.Term.read;
+    let _ = Lsp.diagnostics;
+    let _ = Lsp.on_change;
+    let _ = Lsp.definition;
+    let _ = Lsp.on_completions;
     return Unit.new;
   }

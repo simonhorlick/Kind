@@ -8,12 +8,12 @@ type Lsp.Ref {
   )
 }
 
-Lsp.refs.go(term: Fm.Term, start: Nat, end: Nat)
+Lsp.refs.go(term: Kind.Term, start: Nat, end: Nat)
   : List(Lsp.Ref)
-  // Traverse the tree of Fm.Terms and collect any refs.
+  // Traverse the tree of Kind.Terms and collect any refs.
   case term {
     ref: [
-      Lsp.Ref.new(Pair.new!!(start, end), Fm.Name.show(term.name))
+      Lsp.Ref.new(Pair.new!!(start, end), Kind.Name.show(term.name))
     ]
 
     var: []
@@ -24,12 +24,12 @@ Lsp.refs.go(term: Fm.Term, start: Nat, end: Nat)
       let type = Lsp.refs.go(term.xtyp, 0, 0)
       let body = Lsp.refs.go(
         term.body(
-          Fm.Term.var(term.self, 0),
-          Fm.Term.var(term.name, 0)
+          Kind.Term.var(term.self, 0),
+          Kind.Term.var(term.name, 0)
         ), 0, 0)
       List.concat!(type, body)
 
-    lam: Lsp.refs.go(term.body(Fm.Term.var(term.name, 0)), 0, 0)
+    lam: Lsp.refs.go(term.body(Kind.Term.var(term.name, 0)), 0, 0)
 
     app:
         let func = Lsp.refs.go(term.func, 0, 0)
@@ -39,14 +39,14 @@ Lsp.refs.go(term: Fm.Term, start: Nat, end: Nat)
     let:
       let expr = Lsp.refs.go(term.expr, 0, 0)
       let body = Lsp.refs.go(
-        term.body(Fm.Term.var(term.name, 0)),
+        term.body(Kind.Term.var(term.name, 0)),
         0, 0)
       List.concat!(expr, body)
 
     def:
       let expr = Lsp.refs.go(term.expr, 0, 0)
       let body = Lsp.refs.go(
-        term.body(Fm.Term.var(term.name, 0)),
+        term.body(Kind.Term.var(term.name, 0)),
         0, 0)
       List.concat!(expr, body)
 
@@ -98,7 +98,7 @@ Lsp.refs.go(term: Fm.Term, start: Nat, end: Nat)
 
 // refs lists all of the names that the given Def references along with the
 // source location of the name.
-Lsp.refs(d: Fm.Def): List(Lsp.Ref)
+Lsp.refs(d: Kind.Def): List(Lsp.Ref)
   open d
   List.concat!(
     Lsp.refs.go(d.term, 0, 0),
