@@ -1,0 +1,85 @@
+Lsp.diagnostics.make_report.go(
+    defs: Fm.Defs,
+    names: List(Fm.Name),
+    errs: List(Pair(String, Fm.Error)),
+    typs: List(Pair(Fm.Name, Fm.Term))
+): Lsp.Report
+  case names {
+    // Base-case. We've handled all the definitions so return all of the errors.
+    nil: Lsp.Report.new(typs, errs),
+
+    cons:
+      let name = names.head;
+
+      // Get the top-level definition `name` from `defs`.
+      case Fm.get<_>(name, defs) as got {
+        // TODO(simon): Should we handle this case?
+        none: Lsp.diagnostics.make_report.go(defs, names.tail, errs, typs),
+        some: case got.value {
+          new:
+            let typs = List.append<_>(typs, {name, got.value.type});
+
+            // Inspect the typechecking status of this term, if typechecking
+            // failed then report it.
+            case got.value.stat {
+              init: Lsp.diagnostics.make_report.go(defs, names.tail, errs, typs),
+              wait: Lsp.diagnostics.make_report.go(defs, names.tail, errs, typs),
+              done: Lsp.diagnostics.make_report.go(defs, names.tail, errs, typs),
+
+              // Retrieve the list of typechecking errors attached to this term.
+              fail: case got.value.stat.errors {
+                nil: Lsp.diagnostics.make_report.go(defs, names.tail, errs, typs),
+                cons:
+                  let rel_errs = Fm.Error.relevant(got.value.stat.errors,
+                    Bool.false);
+                  case rel_errs {
+                    nil:
+                      Lsp.diagnostics.make_report.go(defs, names.tail, errs, typs),
+                    cons:
+                      let added_errs = List.concat!(
+                        errs,
+                        List.map!!((e) {got.value.file, e}, rel_errs));
+                      Lsp.diagnostics.make_report.go(defs, names.tail, added_errs,
+                        typs)
+                  }
+              }
+            }
+        }
+      }
+  }
+
+// make_report collects typechecking errors from the provided definitions.
+Lsp.diagnostics.make_report(
+    defs: Fm.Defs,
+    names: List(Fm.Name)): Lsp.Report
+  Lsp.diagnostics.make_report.go(defs, names, [], [])
+
+// check maps any typechecking errors to diagnostics.
+Lsp.diagnostics(
+  defs: Fm.Defs
+): List(Lsp.Diagnostic)
+  // TODO: Return a Map(uri, Diagnostics[]) that contains a key for every uri
+  // we know about - it's important that we send back empty diagnostics for
+  // files that have no errors to display.
+  let names = List.mapped<_>(Map.keys<_>(defs))<_>(Fm.Name.from_bits);
+
+  // Collect any errors from typechecking.
+  open Lsp.diagnostics.make_report(defs, names) as report
+
+  // Attach source locations, if available.
+  // FIXME: goals do not have source locations.
+  List.mapped<_>(report.errors)<_>((pair)
+    open pair
+    let uri = pair.fst
+    let err = pair.snd
+    case Fm.Error.origin(err) as origin {
+      none: Lsp.Diagnostic.new(Fm.Error.show(err, defs), uri, 0u, 0u),
+      some: case origin.value {
+        new:
+          let from = Nat.to_u32(origin.value.fst)
+          let upto = Nat.to_u32(origin.value.snd)
+          Lsp.Diagnostic.new(
+            Fm.Error.show(err, defs), uri, from, upto)
+      },
+    }
+  )
