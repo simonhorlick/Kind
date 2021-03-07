@@ -1,0 +1,15 @@
+// Reports an error.
+Lsp.DiagnosticSeverity.Error: U32
+  1u
+
+// Reports a warning.
+Lsp.DiagnosticSeverity.Warning: U32
+  2u
+
+// Reports an information.
+Lsp.DiagnosticSeverity.Information: U32
+  3u
+
+// Reports a hint.
+Lsp.DiagnosticSeverity.Hint: U32
+  4u

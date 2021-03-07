@@ -53,6 +53,19 @@ Lsp.diagnostics.make_report(
     names: List(Kind.Name)): Lsp.Report
   Lsp.diagnostics.make_report.go(defs, names, [], [])
 
+// severity maps an error type to a diagnostic severity. This controls how the
+// diagnostic is displayed in the UI.
+Lsp.severity(err: Kind.Error): U32
+  case err {
+    type_mismatch: Lsp.DiagnosticSeverity.Error,
+    waiting: Lsp.DiagnosticSeverity.Information,
+    indirect: Lsp.DiagnosticSeverity.Information,
+    show_goal: Lsp.DiagnosticSeverity.Warning,
+    patch: Lsp.DiagnosticSeverity.Information,
+    undefined_reference: Lsp.DiagnosticSeverity.Error,
+    cant_infer: Lsp.DiagnosticSeverity.Error,
+  }
+
 // check maps any typechecking errors to diagnostics.
 Lsp.diagnostics(
   defs: Kind.Defs
@@ -72,13 +85,23 @@ Lsp.diagnostics(
     let uri = pair.fst
     let err = pair.snd
     case Kind.Error.origin(err) as origin {
-      none: Lsp.Diagnostic.new(Kind.Error.show(err, defs), uri, 0u, 0u),
+      none:
+        Lsp.Diagnostic.new(
+          Kind.Error.show(err, defs),
+          Lsp.severity(err),
+          uri,
+          0u,
+          0u)
       some: case origin.value {
         new:
           let from = Nat.to_u32(origin.value.fst)
           let upto = Nat.to_u32(origin.value.snd)
           Lsp.Diagnostic.new(
-            Kind.Error.show(err, defs), uri, from, upto)
+            Kind.Error.show(err, defs),
+            Lsp.severity(err),
+            uri,
+            from,
+            upto)
       },
     }
   )

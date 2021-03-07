@@ -15,6 +15,7 @@ Lsp.on_change(
       // There's no need to typecheck.
       let diagnostics = [Lsp.Diagnostic.new(
         parsed.err,
+        Lsp.DiagnosticSeverity.Error,
         uri,
         Nat.to_u32(parsed.idx),
         Nat.to_u32(parsed.idx))]
