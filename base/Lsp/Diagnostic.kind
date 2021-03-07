@@ -2,6 +2,7 @@
 type Lsp.Diagnostic {
   new(
     message: String,
+    severity: U32, // A Lsp.DiagnosticSeverity.
     file: String,
     from: U32,
     upto: U32,
