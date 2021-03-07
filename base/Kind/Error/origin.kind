@@ -1,6 +1,7 @@
 Kind.Error.origin(error: Kind.Error): Maybe(Pair(Nat,Nat))
   case error {
     type_mismatch: error.origin,
+    show_goal: error.origin,
     undefined_reference: error.origin,
     cant_infer: error.origin,
   } default none
