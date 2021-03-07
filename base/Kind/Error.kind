@@ -8,6 +8,7 @@ type Kind.Error {
   ),
   // Found a goal to be shown
   show_goal(
+    origin: Maybe(Pair(Nat,Nat)),
     name: Kind.Name,
     dref: List<Bits>,
     verb: Bool,

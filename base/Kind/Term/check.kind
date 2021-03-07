@@ -198,7 +198,7 @@ Kind.Term.check(
       },
       gol: Kind.Check {
         Kind.Check.result!(type, [
-          Kind.Error.show_goal(term.name, term.dref, term.verb, type, ctx)
+          Kind.Error.show_goal(orig, term.name, term.dref, term.verb, type, ctx)
         ]);
       },
       hol: Kind.Check {
