@@ -3,7 +3,7 @@ Kind.Error.origin(error: Kind.Error): Maybe(Pair(Nat,Nat))
     type_mismatch: error.origin,
     waiting: Maybe.none!,
     indirect: Maybe.none!,
-    show_goal: Maybe.none!,
+    show_goal: error.origin,
     patch: Maybe.none!,
     undefined_reference: error.origin,
     cant_infer: error.origin,
