@@ -18340,62 +18340,170 @@ module.exports = (function() {
     };
     const Map$union = x0 => x1 => Map$union$(x0, x1);
 
-    function Lsp$on_change$(_uri$1, _content$2, _defs$3) {
-        var _parsed$4 = Kind$Parser$file$(_uri$1, _content$2, Map$new, 0n, _content$2);
-        var self = _parsed$4;
-        switch (self._) {
-            case 'Parser.Reply.error':
-                var $6058 = self.idx;
-                var $6059 = self.err;
-                var _diagnostics$8 = List$cons$(Lsp$Diagnostic$new$($6059, Lsp$DiagnosticSeverity$Error, _uri$1, (Number($6058)), (Number($6058))), List$nil);
-                var $6060 = Pair$new$(_defs$3, _diagnostics$8);
-                var $6057 = $6060;
-                break;
-            case 'Parser.Reply.value':
-                var $6061 = self.val;
-                var _existingDefs$8 = Lsp$defs$(_defs$3, _uri$1);
-                var _namesToDelete$9 = List$map$((_x$9 => {
-                    var self = _x$9;
-                    switch (self._) {
-                        case 'Kind.Def.new':
-                            var $6064 = self.name;
-                            var $6065 = $6064;
-                            var $6063 = $6065;
-                            break;
-                    };
-                    return $6063;
-                }), _existingDefs$8);
-                var _otherDefs$10 = (() => {
-                    var $6067 = _defs$3;
-                    var $6068 = _namesToDelete$9;
-                    let _m$11 = $6067;
-                    let _d$10;
-                    while ($6068._ === 'List.cons') {
-                        _d$10 = $6068.head;
-                        var $6067 = Map$delete$((kind_name_to_bits(_d$10)), _m$11);
-                        _m$11 = $6067;
-                        $6068 = $6068.tail;
-                    }
-                    return _m$11;
-                })();
-                var _currentDefs$11 = Map$union$($6061, _otherDefs$10);
-                var _defsToCheck$12 = List$mapped$(Map$keys$($6061), Kind$Name$from_bits);
-                var _checked$13 = IO$purify$(Kind$Synth$many$(_defsToCheck$12, _currentDefs$11));
-                var $6062 = Pair$new$(_checked$13, Lsp$diagnostics$(_checked$13));
-                var $6057 = $6062;
+    function List$any$(_cond$2, _list$3) {
+        var List$any$ = (_cond$2, _list$3) => ({
+            ctr: 'TCO',
+            arg: [_cond$2, _list$3]
+        });
+        var List$any = _cond$2 => _list$3 => List$any$(_cond$2, _list$3);
+        var arg = [_cond$2, _list$3];
+        while (true) {
+            let [_cond$2, _list$3] = arg;
+            var R = (() => {
+                var self = _list$3;
+                switch (self._) {
+                    case 'List.cons':
+                        var $6057 = self.head;
+                        var $6058 = self.tail;
+                        var self = _cond$2($6057);
+                        if (self) {
+                            var $6060 = Bool$true;
+                            var $6059 = $6060;
+                        } else {
+                            var $6061 = List$any$(_cond$2, $6058);
+                            var $6059 = $6061;
+                        };
+                        return $6059;
+                    case 'List.nil':
+                        var $6062 = Bool$false;
+                        return $6062;
+                };
+            })();
+            if (R.ctr === 'TCO') arg = R.arg;
+            else return R;
+        }
+    };
+    const List$any = x0 => x1 => List$any$(x0, x1);
+
+    function GSet$member$(_cmp$2, _a$3, _set$4) {
+        var GSet$member$ = (_cmp$2, _a$3, _set$4) => ({
+            ctr: 'TCO',
+            arg: [_cmp$2, _a$3, _set$4]
+        });
+        var GSet$member = _cmp$2 => _a$3 => _set$4 => GSet$member$(_cmp$2, _a$3, _set$4);
+        var arg = [_cmp$2, _a$3, _set$4];
+        while (true) {
+            let [_cmp$2, _a$3, _set$4] = arg;
+            var R = (() => {
+                var self = _set$4;
+                switch (self._) {
+                    case 'GSet.bin':
+                        var $6063 = self.val;
+                        var $6064 = self.left;
+                        var $6065 = self.right;
+                        var self = _cmp$2(_a$3)($6063);
+                        switch (self._) {
+                            case 'Cmp.ltn':
+                                var $6067 = GSet$member$(_cmp$2, _a$3, $6064);
+                                var $6066 = $6067;
+                                break;
+                            case 'Cmp.eql':
+                                var $6068 = Bool$true;
+                                var $6066 = $6068;
+                                break;
+                            case 'Cmp.gtn':
+                                var $6069 = GSet$member$(_cmp$2, _a$3, $6065);
+                                var $6066 = $6069;
+                                break;
+                        };
+                        return $6066;
+                    case 'GSet.tip':
+                        var $6070 = Bool$false;
+                        return $6070;
+                };
+            })();
+            if (R.ctr === 'TCO') arg = R.arg;
+            else return R;
+        }
+    };
+    const GSet$member = x0 => x1 => x2 => GSet$member$(x0, x1, x2);
+
+    function U16$cmp$(_a$1, _b$2) {
+        var self = _a$1;
+        switch ('u16') {
+            case 'u16':
+                var $6072 = u16_to_word(self);
+                var self = _b$2;
+                switch ('u16') {
+                    case 'u16':
+                        var $6074 = u16_to_word(self);
+                        var $6075 = Word$cmp$($6072, $6074);
+                        var $6073 = $6075;
+                        break;
+                };
+                var $6071 = $6073;
                 break;
         };
-        return $6057;
+        return $6071;
     };
-    const Lsp$on_change = x0 => x1 => x2 => Lsp$on_change$(x0, x1, x2);
+    const U16$cmp = x0 => x1 => U16$cmp$(x0, x1);
+
+    function String$cmp$(_a$1, _b$2) {
+        var String$cmp$ = (_a$1, _b$2) => ({
+            ctr: 'TCO',
+            arg: [_a$1, _b$2]
+        });
+        var String$cmp = _a$1 => _b$2 => String$cmp$(_a$1, _b$2);
+        var arg = [_a$1, _b$2];
+        while (true) {
+            let [_a$1, _b$2] = arg;
+            var R = (() => {
+                var self = _a$1;
+                if (self.length === 0) {
+                    var self = _b$2;
+                    if (self.length === 0) {
+                        var $6077 = Cmp$eql;
+                        var $6076 = $6077;
+                    } else {
+                        var $6078 = self.charCodeAt(0);
+                        var $6079 = self.slice(1);
+                        var $6080 = Cmp$ltn;
+                        var $6076 = $6080;
+                    };
+                    return $6076;
+                } else {
+                    var $6081 = self.charCodeAt(0);
+                    var $6082 = self.slice(1);
+                    var self = _b$2;
+                    if (self.length === 0) {
+                        var $6084 = Cmp$gtn;
+                        var $6083 = $6084;
+                    } else {
+                        var $6085 = self.charCodeAt(0);
+                        var $6086 = self.slice(1);
+                        var self = U16$cmp$($6081, $6085);
+                        switch (self._) {
+                            case 'Cmp.ltn':
+                                var $6088 = Cmp$ltn;
+                                var $6087 = $6088;
+                                break;
+                            case 'Cmp.eql':
+                                var $6089 = String$cmp$($6082, $6086);
+                                var $6087 = $6089;
+                                break;
+                            case 'Cmp.gtn':
+                                var $6090 = Cmp$gtn;
+                                var $6087 = $6090;
+                                break;
+                        };
+                        var $6083 = $6087;
+                    };
+                    return $6083;
+                };
+            })();
+            if (R.ctr === 'TCO') arg = R.arg;
+            else return R;
+        }
+    };
+    const String$cmp = x0 => x1 => String$cmp$(x0, x1);
 
     function Lsp$Ref$new$(_range$1, _name$2) {
-        var $6069 = ({
+        var $6091 = ({
             _: 'Lsp.Ref.new',
             'range': _range$1,
             'name': _name$2
         });
-        return $6069;
+        return $6091;
     };
     const Lsp$Ref$new = x0 => x1 => Lsp$Ref$new$(x0, x1);
 
@@ -18403,105 +18511,105 @@ module.exports = (function() {
         var self = _term$1;
         switch (self._) {
             case 'Kind.Term.ref':
-                var $6071 = self.name;
-                var $6072 = List$cons$(Lsp$Ref$new$(Pair$new$(_start$2, _end$3), Kind$Name$show$($6071)), List$nil);
-                var $6070 = $6072;
+                var $6093 = self.name;
+                var $6094 = List$cons$(Lsp$Ref$new$(Pair$new$(_start$2, _end$3), Kind$Name$show$($6093)), List$nil);
+                var $6092 = $6094;
                 break;
             case 'Kind.Term.all':
-                var $6073 = self.self;
-                var $6074 = self.name;
-                var $6075 = self.xtyp;
-                var $6076 = self.body;
-                var _type$9 = Lsp$refs$go$($6075, 0n, 0n);
-                var _body$10 = Lsp$refs$go$($6076(Kind$Term$var$($6073, 0n))(Kind$Term$var$($6074, 0n)), 0n, 0n);
-                var $6077 = List$concat$(_type$9, _body$10);
-                var $6070 = $6077;
+                var $6095 = self.self;
+                var $6096 = self.name;
+                var $6097 = self.xtyp;
+                var $6098 = self.body;
+                var _type$9 = Lsp$refs$go$($6097, 0n, 0n);
+                var _body$10 = Lsp$refs$go$($6098(Kind$Term$var$($6095, 0n))(Kind$Term$var$($6096, 0n)), 0n, 0n);
+                var $6099 = List$concat$(_type$9, _body$10);
+                var $6092 = $6099;
                 break;
             case 'Kind.Term.lam':
-                var $6078 = self.name;
-                var $6079 = self.body;
-                var $6080 = Lsp$refs$go$($6079(Kind$Term$var$($6078, 0n)), 0n, 0n);
-                var $6070 = $6080;
+                var $6100 = self.name;
+                var $6101 = self.body;
+                var $6102 = Lsp$refs$go$($6101(Kind$Term$var$($6100, 0n)), 0n, 0n);
+                var $6092 = $6102;
                 break;
             case 'Kind.Term.app':
-                var $6081 = self.func;
-                var $6082 = self.argm;
-                var _func$6 = Lsp$refs$go$($6081, 0n, 0n);
-                var _argm$7 = Lsp$refs$go$($6082, 0n, 0n);
-                var $6083 = List$concat$(_func$6, _argm$7);
-                var $6070 = $6083;
+                var $6103 = self.func;
+                var $6104 = self.argm;
+                var _func$6 = Lsp$refs$go$($6103, 0n, 0n);
+                var _argm$7 = Lsp$refs$go$($6104, 0n, 0n);
+                var $6105 = List$concat$(_func$6, _argm$7);
+                var $6092 = $6105;
                 break;
             case 'Kind.Term.let':
-                var $6084 = self.name;
-                var $6085 = self.expr;
-                var $6086 = self.body;
-                var _expr$7 = Lsp$refs$go$($6085, 0n, 0n);
-                var _body$8 = Lsp$refs$go$($6086(Kind$Term$var$($6084, 0n)), 0n, 0n);
-                var $6087 = List$concat$(_expr$7, _body$8);
-                var $6070 = $6087;
+                var $6106 = self.name;
+                var $6107 = self.expr;
+                var $6108 = self.body;
+                var _expr$7 = Lsp$refs$go$($6107, 0n, 0n);
+                var _body$8 = Lsp$refs$go$($6108(Kind$Term$var$($6106, 0n)), 0n, 0n);
+                var $6109 = List$concat$(_expr$7, _body$8);
+                var $6092 = $6109;
                 break;
             case 'Kind.Term.def':
-                var $6088 = self.name;
-                var $6089 = self.expr;
-                var $6090 = self.body;
-                var _expr$7 = Lsp$refs$go$($6089, 0n, 0n);
-                var _body$8 = Lsp$refs$go$($6090(Kind$Term$var$($6088, 0n)), 0n, 0n);
-                var $6091 = List$concat$(_expr$7, _body$8);
-                var $6070 = $6091;
+                var $6110 = self.name;
+                var $6111 = self.expr;
+                var $6112 = self.body;
+                var _expr$7 = Lsp$refs$go$($6111, 0n, 0n);
+                var _body$8 = Lsp$refs$go$($6112(Kind$Term$var$($6110, 0n)), 0n, 0n);
+                var $6113 = List$concat$(_expr$7, _body$8);
+                var $6092 = $6113;
                 break;
             case 'Kind.Term.ann':
-                var $6092 = self.term;
-                var $6093 = self.type;
-                var _term$7 = Lsp$refs$go$($6092, 0n, 0n);
-                var _type$8 = Lsp$refs$go$($6093, 0n, 0n);
-                var $6094 = List$concat$(_term$7, _type$8);
-                var $6070 = $6094;
+                var $6114 = self.term;
+                var $6115 = self.type;
+                var _term$7 = Lsp$refs$go$($6114, 0n, 0n);
+                var _type$8 = Lsp$refs$go$($6115, 0n, 0n);
+                var $6116 = List$concat$(_term$7, _type$8);
+                var $6092 = $6116;
                 break;
             case 'Kind.Term.cse':
-                var $6095 = self.expr;
-                var $6096 = self.with;
-                var $6097 = self.cses;
-                var $6098 = self.moti;
-                var _wyth$10 = List$flatten$(List$mapped$($6096, (_defn$10 => {
+                var $6117 = self.expr;
+                var $6118 = self.with;
+                var $6119 = self.cses;
+                var $6120 = self.moti;
+                var _wyth$10 = List$flatten$(List$mapped$($6118, (_defn$10 => {
                     var self = _defn$10;
                     switch (self._) {
                         case 'Kind.Def.new':
-                            var $6101 = self.term;
-                            var $6102 = self.type;
-                            var _type$20 = Lsp$refs$go$($6102, 0n, 0n);
-                            var _term$21 = Lsp$refs$go$($6101, 0n, 0n);
-                            var $6103 = List$concat$(_term$21, _type$20);
-                            var $6100 = $6103;
+                            var $6123 = self.term;
+                            var $6124 = self.type;
+                            var _type$20 = Lsp$refs$go$($6124, 0n, 0n);
+                            var _term$21 = Lsp$refs$go$($6123, 0n, 0n);
+                            var $6125 = List$concat$(_term$21, _type$20);
+                            var $6122 = $6125;
                             break;
                     };
-                    return $6100;
+                    return $6122;
                 })));
-                var _cses$11 = Map$to_list$($6097);
+                var _cses$11 = Map$to_list$($6119);
                 var _cses$12 = List$flatten$(List$mapped$(_cses$11, (_x$12 => {
-                    var $6104 = Lsp$refs$go$(Pair$snd$(_x$12), 0n, 0n);
-                    return $6104;
+                    var $6126 = Lsp$refs$go$(Pair$snd$(_x$12), 0n, 0n);
+                    return $6126;
                 })));
-                var self = $6098;
+                var self = $6120;
                 switch (self._) {
                     case 'Maybe.some':
-                        var $6105 = self.value;
-                        var $6106 = Lsp$refs$go$($6105, 0n, 0n);
-                        var _moti$13 = $6106;
+                        var $6127 = self.value;
+                        var $6128 = Lsp$refs$go$($6127, 0n, 0n);
+                        var _moti$13 = $6128;
                         break;
                     case 'Maybe.none':
-                        var $6107 = List$nil;
-                        var _moti$13 = $6107;
+                        var $6129 = List$nil;
+                        var _moti$13 = $6129;
                         break;
                 };
-                var _expr$14 = Lsp$refs$go$($6095, 0n, 0n);
-                var $6099 = List$concat$(_wyth$10, List$concat$(_cses$12, List$concat$(_moti$13, _expr$14)));
-                var $6070 = $6099;
+                var _expr$14 = Lsp$refs$go$($6117, 0n, 0n);
+                var $6121 = List$concat$(_wyth$10, List$concat$(_cses$12, List$concat$(_moti$13, _expr$14)));
+                var $6092 = $6121;
                 break;
             case 'Kind.Term.ori':
-                var $6108 = self.orig;
-                var $6109 = self.expr;
-                var $6110 = Lsp$refs$go$($6109, Pair$fst$($6108), Pair$snd$($6108));
-                var $6070 = $6110;
+                var $6130 = self.orig;
+                var $6131 = self.expr;
+                var $6132 = Lsp$refs$go$($6131, Pair$fst$($6130), Pair$snd$($6130));
+                var $6092 = $6132;
                 break;
             case 'Kind.Term.var':
             case 'Kind.Term.typ':
@@ -18510,11 +18618,11 @@ module.exports = (function() {
             case 'Kind.Term.nat':
             case 'Kind.Term.chr':
             case 'Kind.Term.str':
-                var $6111 = List$nil;
-                var $6070 = $6111;
+                var $6133 = List$nil;
+                var $6092 = $6133;
                 break;
         };
-        return $6070;
+        return $6092;
     };
     const Lsp$refs$go = x0 => x1 => x2 => Lsp$refs$go$(x0, x1, x2);
 
@@ -18522,75 +18630,454 @@ module.exports = (function() {
         var self = _d$1;
         switch (self._) {
             case 'Kind.Def.new':
-                var $6113 = self.term;
-                var $6114 = self.type;
-                var $6115 = List$concat$(Lsp$refs$go$($6113, 0n, 0n), Lsp$refs$go$($6114, 0n, 0n));
-                var $6112 = $6115;
+                var $6135 = self.term;
+                var $6136 = self.type;
+                var $6137 = List$concat$(Lsp$refs$go$($6135, 0n, 0n), Lsp$refs$go$($6136, 0n, 0n));
+                var $6134 = $6137;
                 break;
         };
-        return $6112;
+        return $6134;
     };
     const Lsp$refs = x0 => Lsp$refs$(x0);
+
+    function Lsp$contains_ref$(_names$1, _p$2) {
+        var $6138 = List$any$((_ref$3 => {
+            var self = _ref$3;
+            switch (self._) {
+                case 'Lsp.Ref.new':
+                    var $6140 = self.name;
+                    var $6141 = GSet$member$(String$cmp, $6140, _names$1);
+                    var $6139 = $6141;
+                    break;
+            };
+            return $6139;
+        }), Lsp$refs$(_p$2));
+        return $6138;
+    };
+    const Lsp$contains_ref = x0 => x1 => Lsp$contains_ref$(x0, x1);
+
+    function List$foldr$(_b$3, _f$4, _xs$5) {
+        var $6142 = List$fold$(_xs$5, _b$3, _f$4);
+        return $6142;
+    };
+    const List$foldr = x0 => x1 => x2 => List$foldr$(x0, x1, x2);
+
+    function GSet$(_A$1) {
+        var $6143 = null;
+        return $6143;
+    };
+    const GSet = x0 => GSet$(x0);
+    const GSet$tip = ({
+        _: 'GSet.tip'
+    });
+
+    function GSet$bin$(_size$2, _val$3, _left$4, _right$5) {
+        var $6144 = ({
+            _: 'GSet.bin',
+            'size': _size$2,
+            'val': _val$3,
+            'left': _left$4,
+            'right': _right$5
+        });
+        return $6144;
+    };
+    const GSet$bin = x0 => x1 => x2 => x3 => GSet$bin$(x0, x1, x2, x3);
+
+    function GSet$singleton$(_a$2) {
+        var $6145 = GSet$bin$(1n, _a$2, GSet$tip, GSet$tip);
+        return $6145;
+    };
+    const GSet$singleton = x0 => GSet$singleton$(x0);
+
+    function GSet$size$(_set$2) {
+        var self = _set$2;
+        switch (self._) {
+            case 'GSet.bin':
+                var $6147 = self.size;
+                var $6148 = $6147;
+                var $6146 = $6148;
+                break;
+            case 'GSet.tip':
+                var $6149 = 0n;
+                var $6146 = $6149;
+                break;
+        };
+        return $6146;
+    };
+    const GSet$size = x0 => GSet$size$(x0);
+    const GSet$w = 3n;
+    const Nat$ltn = a0 => a1 => (a0 < a1);
+
+    function List$sum$go$(_xs$1, _n$2) {
+        var List$sum$go$ = (_xs$1, _n$2) => ({
+            ctr: 'TCO',
+            arg: [_xs$1, _n$2]
+        });
+        var List$sum$go = _xs$1 => _n$2 => List$sum$go$(_xs$1, _n$2);
+        var arg = [_xs$1, _n$2];
+        while (true) {
+            let [_xs$1, _n$2] = arg;
+            var R = (() => {
+                var self = _xs$1;
+                switch (self._) {
+                    case 'List.cons':
+                        var $6150 = self.head;
+                        var $6151 = self.tail;
+                        var $6152 = List$sum$go$($6151, ($6150 + _n$2));
+                        return $6152;
+                    case 'List.nil':
+                        var $6153 = _n$2;
+                        return $6153;
+                };
+            })();
+            if (R.ctr === 'TCO') arg = R.arg;
+            else return R;
+        }
+    };
+    const List$sum$go = x0 => x1 => List$sum$go$(x0, x1);
+
+    function List$sum$(_xs$1) {
+        var $6154 = List$sum$go$(_xs$1, Nat$zero);
+        return $6154;
+    };
+    const List$sum = x0 => List$sum$(x0);
+
+    function GSet$node$(_val$2, _left$3, _right$4) {
+        var _size_left$5 = GSet$size$(_left$3);
+        var _size_right$6 = GSet$size$(_right$4);
+        var _new_size$7 = List$sum$(List$cons$(1n, List$cons$(_size_left$5, List$cons$(_size_right$6, List$nil))));
+        var $6155 = GSet$bin$(_new_size$7, _val$2, _left$3, _right$4);
+        return $6155;
+    };
+    const GSet$node = x0 => x1 => x2 => GSet$node$(x0, x1, x2);
+
+    function GSet$balance$(_a$2, _l$3, _r$4) {
+        var _size_l$5 = GSet$size$(_l$3);
+        var _size_r$6 = GSet$size$(_r$4);
+        var _size_l_plus_size_r$7 = (_size_l$5 + _size_r$6);
+        var _w_x_size_l$8 = (GSet$w * _size_l$5);
+        var _w_x_size_r$9 = (GSet$w * _size_r$6);
+        var self = (_size_l_plus_size_r$7 < 2n);
+        if (self) {
+            var $6157 = GSet$node$(_a$2, _l$3, _r$4);
+            var $6156 = $6157;
+        } else {
+            var self = (_size_r$6 > _w_x_size_l$8);
+            if (self) {
+                var self = _r$4;
+                switch (self._) {
+                    case 'GSet.bin':
+                        var $6160 = self.val;
+                        var $6161 = self.left;
+                        var $6162 = self.right;
+                        var _size_rl$14 = GSet$size$($6161);
+                        var _size_rr$15 = GSet$size$($6162);
+                        var self = (_size_rl$14 < _size_rr$15);
+                        if (self) {
+                            var _new_l$16 = GSet$node$(_a$2, _l$3, $6161);
+                            var $6164 = GSet$node$($6160, _new_l$16, $6162);
+                            var $6163 = $6164;
+                        } else {
+                            var self = $6161;
+                            switch (self._) {
+                                case 'GSet.bin':
+                                    var $6166 = self.val;
+                                    var $6167 = self.left;
+                                    var $6168 = self.right;
+                                    var _new_val$20 = $6166;
+                                    var _new_left$21 = GSet$node$(_a$2, _l$3, $6167);
+                                    var _new_right$22 = GSet$node$($6160, $6168, $6162);
+                                    var $6169 = GSet$node$(_new_val$20, _new_left$21, _new_right$22);
+                                    var $6165 = $6169;
+                                    break;
+                                case 'GSet.tip':
+                                    var $6170 = GSet$node$(_a$2, _l$3, _r$4);
+                                    var $6165 = $6170;
+                                    break;
+                            };
+                            var $6163 = $6165;
+                        };
+                        var $6159 = $6163;
+                        break;
+                    case 'GSet.tip':
+                        var $6171 = GSet$node$(_a$2, _l$3, _r$4);
+                        var $6159 = $6171;
+                        break;
+                };
+                var $6158 = $6159;
+            } else {
+                var self = (_size_l$5 > _w_x_size_r$9);
+                if (self) {
+                    var self = _l$3;
+                    switch (self._) {
+                        case 'GSet.bin':
+                            var $6174 = self.val;
+                            var $6175 = self.left;
+                            var $6176 = self.right;
+                            var _size_ll$14 = GSet$size$($6175);
+                            var _size_lr$15 = GSet$size$($6176);
+                            var self = (_size_lr$15 < _size_ll$14);
+                            if (self) {
+                                var _new_left$16 = $6175;
+                                var _new_right$17 = GSet$node$(_a$2, $6176, _r$4);
+                                var $6178 = GSet$node$($6174, _new_left$16, _new_right$17);
+                                var $6177 = $6178;
+                            } else {
+                                var self = $6176;
+                                switch (self._) {
+                                    case 'GSet.bin':
+                                        var $6180 = self.val;
+                                        var $6181 = self.left;
+                                        var $6182 = self.right;
+                                        var _new_val$20 = $6180;
+                                        var _new_left$21 = GSet$node$($6174, $6175, $6181);
+                                        var _new_right$22 = GSet$node$(_a$2, $6182, _r$4);
+                                        var $6183 = GSet$node$(_new_val$20, _new_left$21, _new_right$22);
+                                        var $6179 = $6183;
+                                        break;
+                                    case 'GSet.tip':
+                                        var $6184 = GSet$node$(_a$2, _l$3, _r$4);
+                                        var $6179 = $6184;
+                                        break;
+                                };
+                                var $6177 = $6179;
+                            };
+                            var $6173 = $6177;
+                            break;
+                        case 'GSet.tip':
+                            var $6185 = GSet$node$(_a$2, _l$3, _r$4);
+                            var $6173 = $6185;
+                            break;
+                    };
+                    var $6172 = $6173;
+                } else {
+                    var $6186 = GSet$node$(_a$2, _l$3, _r$4);
+                    var $6172 = $6186;
+                };
+                var $6158 = $6172;
+            };
+            var $6156 = $6158;
+        };
+        return $6156;
+    };
+    const GSet$balance = x0 => x1 => x2 => GSet$balance$(x0, x1, x2);
+
+    function GSet$insert$(_cmp$2, _a$3, _set$4) {
+        var self = _set$4;
+        switch (self._) {
+            case 'GSet.bin':
+                var $6188 = self.val;
+                var $6189 = self.left;
+                var $6190 = self.right;
+                var self = _cmp$2(_a$3)($6188);
+                switch (self._) {
+                    case 'Cmp.ltn':
+                        var _new_left$9 = GSet$insert$(_cmp$2, _a$3, $6189);
+                        var $6192 = GSet$balance$($6188, _new_left$9, $6190);
+                        var $6191 = $6192;
+                        break;
+                    case 'Cmp.eql':
+                        var $6193 = GSet$node$(_a$3, $6189, $6190);
+                        var $6191 = $6193;
+                        break;
+                    case 'Cmp.gtn':
+                        var _new_right$9 = GSet$insert$(_cmp$2, _a$3, $6190);
+                        var $6194 = GSet$balance$($6188, $6189, _new_right$9);
+                        var $6191 = $6194;
+                        break;
+                };
+                var $6187 = $6191;
+                break;
+            case 'GSet.tip':
+                var $6195 = GSet$singleton$(_a$3);
+                var $6187 = $6195;
+                break;
+        };
+        return $6187;
+    };
+    const GSet$insert = x0 => x1 => x2 => GSet$insert$(x0, x1, x2);
+
+    function GSet$from_list$(_cmp$2, _xs$3) {
+        var $6196 = List$foldr$(GSet$tip, GSet$insert(_cmp$2), _xs$3);
+        return $6196;
+    };
+    const GSet$from_list = x0 => x1 => GSet$from_list$(x0, x1);
+
+    function Lsp$mark_as_init$(_names$1, _defs$2) {
+        var Lsp$mark_as_init$ = (_names$1, _defs$2) => ({
+            ctr: 'TCO',
+            arg: [_names$1, _defs$2]
+        });
+        var Lsp$mark_as_init = _names$1 => _defs$2 => Lsp$mark_as_init$(_names$1, _defs$2);
+        var arg = [_names$1, _defs$2];
+        while (true) {
+            let [_names$1, _defs$2] = arg;
+            var R = (() => {
+                var self = _names$1;
+                switch (self._) {
+                    case 'List.cons':
+                        var $6197 = self.head;
+                        var $6198 = self.tail;
+                        var self = Kind$get$($6197, _defs$2);
+                        switch (self._) {
+                            case 'Maybe.some':
+                                var $6200 = self.value;
+                                var self = $6200;
+                                switch (self._) {
+                                    case 'Kind.Def.new':
+                                        var $6202 = self.file;
+                                        var $6203 = self.code;
+                                        var $6204 = self.orig;
+                                        var $6205 = self.name;
+                                        var $6206 = self.term;
+                                        var $6207 = self.type;
+                                        var $6208 = self.isct;
+                                        var $6209 = self.arit;
+                                        var _defs$15 = Kind$set$($6205, Kind$Def$new$($6202, $6203, $6204, $6205, $6206, $6207, $6208, $6209, Kind$Status$init), _defs$2);
+                                        var $6210 = Lsp$mark_as_init$($6198, _defs$15);
+                                        var $6201 = $6210;
+                                        break;
+                                };
+                                var $6199 = $6201;
+                                break;
+                            case 'Maybe.none':
+                                var $6211 = Lsp$mark_as_init$($6198, _defs$2);
+                                var $6199 = $6211;
+                                break;
+                        };
+                        return $6199;
+                    case 'List.nil':
+                        var $6212 = _defs$2;
+                        return $6212;
+                };
+            })();
+            if (R.ctr === 'TCO') arg = R.arg;
+            else return R;
+        }
+    };
+    const Lsp$mark_as_init = x0 => x1 => Lsp$mark_as_init$(x0, x1);
+
+    function Lsp$on_change$(_uri$1, _content$2, _defs$3) {
+        var _parsed$4 = Kind$Parser$file$(_uri$1, _content$2, Map$new, 0n, _content$2);
+        var self = _parsed$4;
+        switch (self._) {
+            case 'Parser.Reply.error':
+                var $6214 = self.idx;
+                var $6215 = self.err;
+                var _diagnostics$8 = List$cons$(Lsp$Diagnostic$new$($6215, Lsp$DiagnosticSeverity$Error, _uri$1, (Number($6214)), (Number($6214))), List$nil);
+                var $6216 = Pair$new$(_defs$3, _diagnostics$8);
+                var $6213 = $6216;
+                break;
+            case 'Parser.Reply.value':
+                var $6217 = self.val;
+                var _existingDefs$8 = Lsp$defs$(_defs$3, _uri$1);
+                var _namesToDelete$9 = List$map$((_x$9 => {
+                    var self = _x$9;
+                    switch (self._) {
+                        case 'Kind.Def.new':
+                            var $6220 = self.name;
+                            var $6221 = $6220;
+                            var $6219 = $6221;
+                            break;
+                    };
+                    return $6219;
+                }), _existingDefs$8);
+                var _otherDefs$10 = (() => {
+                    var $6223 = _defs$3;
+                    var $6224 = _namesToDelete$9;
+                    let _m$11 = $6223;
+                    let _d$10;
+                    while ($6224._ === 'List.cons') {
+                        _d$10 = $6224.head;
+                        var $6223 = Map$delete$((kind_name_to_bits(_d$10)), _m$11);
+                        _m$11 = $6223;
+                        $6224 = $6224.tail;
+                    }
+                    return _m$11;
+                })();
+                var _currentDefs$11 = Map$union$($6217, _otherDefs$10);
+                var _defsToCheck$12 = List$mapped$(Map$keys$($6217), Kind$Name$from_bits);
+                var _rdepTerms$13 = List$filter$(Lsp$contains_ref(GSet$from_list$(String$cmp, List$concat$(_namesToDelete$9, _defsToCheck$12))), Map$values$(_otherDefs$10));
+                var _rdeps$14 = List$map$((_x$14 => {
+                    var self = _x$14;
+                    switch (self._) {
+                        case 'Kind.Def.new':
+                            var $6226 = self.name;
+                            var $6227 = $6226;
+                            var $6225 = $6227;
+                            break;
+                    };
+                    return $6225;
+                }), _rdepTerms$13);
+                var _checkNames$15 = List$concat$(_defsToCheck$12, _rdeps$14);
+                var _checked$16 = IO$purify$(Kind$Synth$many$(_checkNames$15, Lsp$mark_as_init$(_rdeps$14, _currentDefs$11)));
+                var $6218 = Pair$new$(_checked$16, Lsp$diagnostics$(_checked$16));
+                var $6213 = $6218;
+                break;
+        };
+        return $6213;
+    };
+    const Lsp$on_change = x0 => x1 => x2 => Lsp$on_change$(x0, x1, x2);
 
     function Lsp$definition$(_uri$1, _offset$2, _defs$3) {
         var _ds$4 = Lsp$defs$(_defs$3, _uri$1);
         var _references$5 = List$flatten$(List$map$((_x$5 => {
-            var $6117 = Lsp$refs$(_x$5);
-            return $6117;
+            var $6229 = Lsp$refs$(_x$5);
+            return $6229;
         }), _ds$4));
         var _matches$6 = List$filter$((_x$6 => {
             var self = _x$6;
             switch (self._) {
                 case 'Lsp.Ref.new':
-                    var $6119 = self.range;
-                    var $6120 = ((_offset$2 >= Pair$fst$($6119)) && (_offset$2 <= Pair$snd$($6119)));
-                    var $6118 = $6120;
+                    var $6231 = self.range;
+                    var $6232 = ((_offset$2 >= Pair$fst$($6231)) && (_offset$2 <= Pair$snd$($6231)));
+                    var $6230 = $6232;
                     break;
             };
-            return $6118;
+            return $6230;
         }), _references$5);
         var self = _matches$6;
         switch (self._) {
             case 'List.cons':
-                var $6121 = self.head;
-                var self = $6121;
+                var $6233 = self.head;
+                var self = $6233;
                 switch (self._) {
                     case 'Lsp.Ref.new':
-                        var $6123 = self.name;
-                        var $6124 = Kind$get$(Kind$Name$read$($6123), _defs$3);
-                        var $6122 = $6124;
+                        var $6235 = self.name;
+                        var $6236 = Kind$get$(Kind$Name$read$($6235), _defs$3);
+                        var $6234 = $6236;
                         break;
                 };
-                var $6116 = $6122;
+                var $6228 = $6234;
                 break;
             case 'List.nil':
-                var $6125 = Maybe$none;
-                var $6116 = $6125;
+                var $6237 = Maybe$none;
+                var $6228 = $6237;
                 break;
         };
-        return $6116;
+        return $6228;
     };
     const Lsp$definition = x0 => x1 => x2 => Lsp$definition$(x0, x1, x2);
 
     function Lsp$Completion$new$(_label$1, _kind$2, _data$3) {
-        var $6126 = ({
+        var $6238 = ({
             _: 'Lsp.Completion.new',
             'label': _label$1,
             'kind': _kind$2,
             'data': _data$3
         });
-        return $6126;
+        return $6238;
     };
     const Lsp$Completion$new = x0 => x1 => x2 => Lsp$Completion$new$(x0, x1, x2);
     const CompletionItemKind$Function = 3;
 
     function Lsp$on_completions$(_uri$1, _position$2, _defs$3) {
         var _names$4 = List$map$(Kind$Name$from_bits, Map$keys$(_defs$3));
-        var $6127 = List$map$((_x$5 => {
-            var $6128 = Lsp$Completion$new$(_x$5, CompletionItemKind$Function, _x$5);
-            return $6128;
+        var $6239 = List$map$((_x$5 => {
+            var $6240 = Lsp$Completion$new$(_x$5, CompletionItemKind$Function, _x$5);
+            return $6240;
         }), _names$4);
-        return $6127;
+        return $6239;
     };
     const Lsp$on_completions = x0 => x1 => x2 => Lsp$on_completions$(x0, x1, x2);
     const Kind = (() => {
@@ -18603,11 +19090,11 @@ module.exports = (function() {
         var __$7 = Lsp$on_change;
         var __$8 = Lsp$definition;
         var __$9 = Lsp$on_completions;
-        var $6129 = IO$monad$((_m$bind$10 => _m$pure$11 => {
-            var $6130 = _m$pure$11;
-            return $6130;
+        var $6241 = IO$monad$((_m$bind$10 => _m$pure$11 => {
+            var $6242 = _m$pure$11;
+            return $6242;
         }))(Unit$new);
-        return $6129;
+        return $6241;
     })();
     return {
         '$main$': () => run(Kind),
@@ -19042,10 +19529,30 @@ module.exports = (function() {
         'Lsp.defs': Lsp$defs,
         'Map.delete': Map$delete,
         'Map.union': Map$union,
-        'Lsp.on_change': Lsp$on_change,
+        'List.any': List$any,
+        'GSet.member': GSet$member,
+        'U16.cmp': U16$cmp,
+        'String.cmp': String$cmp,
         'Lsp.Ref.new': Lsp$Ref$new,
         'Lsp.refs.go': Lsp$refs$go,
         'Lsp.refs': Lsp$refs,
+        'Lsp.contains_ref': Lsp$contains_ref,
+        'List.foldr': List$foldr,
+        'GSet': GSet,
+        'GSet.tip': GSet$tip,
+        'GSet.bin': GSet$bin,
+        'GSet.singleton': GSet$singleton,
+        'GSet.size': GSet$size,
+        'GSet.w': GSet$w,
+        'Nat.ltn': Nat$ltn,
+        'List.sum.go': List$sum$go,
+        'List.sum': List$sum,
+        'GSet.node': GSet$node,
+        'GSet.balance': GSet$balance,
+        'GSet.insert': GSet$insert,
+        'GSet.from_list': GSet$from_list,
+        'Lsp.mark_as_init': Lsp$mark_as_init,
+        'Lsp.on_change': Lsp$on_change,
         'Lsp.definition': Lsp$definition,
         'Lsp.Completion.new': Lsp$Completion$new,
         'CompletionItemKind.Function': CompletionItemKind$Function,
