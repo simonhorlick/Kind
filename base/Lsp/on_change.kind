@@ -47,8 +47,10 @@ Lsp.on_change(
       // something that the user has just edited then we need to re-check it.
       // We also need to check if anything references a definition that the
       // user has just removed as part of this edit.
+      let affectedNames = GSet.from_list!(
+        String.cmp, List.concat!(namesToDelete, defsToCheck))
       let rdepTerms = List.filter!(
-        Lsp.contains_ref(GSet.from_list!(String.cmp, List.concat!(namesToDelete, defsToCheck))),
+        Lsp.contains_ref(affectedNames),
         Map.values!(otherDefs))
       let rdeps = List.map!!((x) open x; x.name, rdepTerms);
 
