@@ -9,5 +9,6 @@ Kind: IO(Unit)
     let _ = Lsp.on_change;
     let _ = Lsp.definition;
     let _ = Lsp.on_completions;
+    let _ = Lsp.on_hover;
     return Unit.new;
   }
