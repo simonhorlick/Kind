@@ -9,6 +9,26 @@ type Lsp.HoverRef {
   )
 }
 
+Lsp.HoverRef.term_name(t: Kind.Term): String
+  case t {
+    ref: t.name
+    var: t.name
+    typ: "(unnamed)"
+    all: t.name
+    lam: t.name
+    app: "(unnamed)"
+    let: t.name
+    def: t.name
+    ann: "(unnamed)"
+    gol: t.name
+    hol: "(unnamed)"
+    nat: "(unnamed)"
+    chr: "(unnamed)"
+    str: "(unnamed)"
+    cse: t.name
+    ori: "(unnamed)"
+  }
+
 Lsp.HoverRef.show(r: Lsp.HoverRef): String
   open r
   case r.term {
@@ -65,6 +85,10 @@ check(
           [Kind.Error.undefined_reference(orig, term.name)]),
         some: case got.value {
           new:
+            // let skip = Debug.log!(
+            //   String.pad_left(Bits.length(Kind.MPath.to_bits(path)), ' ', "")
+            //   | "ref " | Lsp.HoverRef.term_name(term) | " orig=" | print_origin(orig) | " term=" | Kind.Term.show(term), (x) Unit.new);
+
             let ref_name = got.value.name;
             let ref_type = got.value.type;
             let ref_term = got.value.term; // the body of the referenced function
@@ -85,6 +109,9 @@ check(
           maybe_with_result(type, result),
           [Kind.Error.undefined_reference(orig, term.name)]),
         some: do Kind.Check {
+          // let skip = Debug.log!(
+          //   String.pad_left(Bits.length(Kind.MPath.to_bits(path)), ' ', "")
+          //   | "var " | Lsp.HoverRef.term_name(term) | " orig=" | print_origin(orig) | " term=" | Kind.Term.show(term), (x) Unit.new);
           return case got.value {
             new: {
               got.value.snd,
@@ -105,14 +132,18 @@ check(
         let body_var = Kind.Term.var(term.name, Nat.succ(ctx_size));
         let body_ctx = List.cons!({term.name,term.xtyp}, List.cons!({term.self,term}, ctx));
         var res1 = check(term.xtyp, Maybe.some!(Kind.Term.typ), defs, ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
-        var res2 = check(term.body(self_var,body_var), Maybe.some!(Kind.Term.typ), defs, body_ctx, Kind.MPath.i(path), Maybe.none!, offset, result);
+        var res2 = check(term.body(self_var,body_var), Maybe.some!(Kind.Term.typ), defs, body_ctx, Kind.MPath.i(path), Maybe.none!, offset, Pair.snd!!(res1));
         return {
           Kind.Term.typ,
-          List.concat!(Pair.snd!!(res1), Pair.snd!!(res2))
+          Pair.snd!!(res2)
         };
       },
       lam: case type {
+        // At this point we've already typechecked the file - so this should
+        // never occur.
         none: do Kind.Check {
+          // let skip = Debug.log!("lam type=none" | " term=" | Kind.Term.show(term), (x) Unit.new);
+
           let lam_type = Kind.Term.hol(Bits.e);
           let lam_term = Kind.Term.ann(Bool.false, term, lam_type);
           Kind.Check.result!(
@@ -120,6 +151,10 @@ check(
             [Kind.Error.patch(Kind.MPath.to_bits(path),lam_term)])
         },
         some: do Kind.Check {
+          // let skip = Debug.log!(
+          //   String.pad_left(Bits.length(Kind.MPath.to_bits(path)), ' ', "")
+          //   | "lam " | Lsp.HoverRef.term_name(term) | " orig=" | print_origin(orig) | " type=" | Kind.Term.show(type.value) | " term=" | Kind.Term.show(term), (x) Unit.new);
+
           let typv = Kind.Term.reduce(type.value, defs);
           case typv {
             all: do Kind.Check {
@@ -129,7 +164,7 @@ check(
               let body_typ = typv.body(self_var, body_var);
               let body_ctx = List.cons!({term.name,typv.xtyp}, ctx);
               var res1 = check(term.body(body_var), Maybe.some!(body_typ), defs, body_ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
-              return {type.value, List.concat!(result, Pair.snd!!(res1))};
+              return {type.value, Pair.snd!!(res1)};
             },
             //hol: do Kind.Check {
               //let lam_type = Kind.Term.all(Bool.false, "", "", Kind.Term.hol(Bits.e), (s,x) Kind.Term.hol(Bits.e));
@@ -147,16 +182,20 @@ check(
         }
       },
       app: do Kind.Check {
+        // let skip = Debug.log!(
+        //   String.pad_left(Bits.length(Kind.MPath.to_bits(path)), ' ', "")
+        //   | "app " | Lsp.HoverRef.term_name(term) | " orig=" | print_origin(orig) | " term=" | Kind.Term.show(term), (x) Unit.new);
+
         var func_typ1 = check(term.func, Maybe.none!, defs, ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
         let func_typ = Kind.Term.reduce(Pair.fst!!(func_typ1), defs);
         case func_typ {
           all: do Kind.Check {
-            var res1 = check(term.argm, Maybe.some!(func_typ.xtyp), defs, ctx, Kind.MPath.i(path), Maybe.none!, offset, result);
+            var res1 = check(term.argm, Maybe.some!(func_typ.xtyp), defs, ctx, Kind.MPath.i(path), Maybe.none!, offset, Pair.snd!!(func_typ1));
             let body_typ = func_typ.body(term.func, term.argm);
             return {
               body_typ,
-              List.append!(List.concat!(List.concat!(result, Pair.snd!!(res1)), Pair.snd!!(func_typ1)),
-              Lsp.HoverRef.new(orig, term, Maybe.some!(Pair.fst!!(res1))))}
+              List.append!(Pair.snd!!(res1),
+                Lsp.HoverRef.new(orig, term, Maybe.some!(Pair.fst!!(res1))))}
           },
           _: do Kind.Check {
             let expected = Either.left!!("(function type)");
@@ -171,19 +210,23 @@ check(
         if term.done then do Kind.Check {
           return {term.type, result}; // TODO: append ann here.
         } else do Kind.Check {
-          check(term.term, Maybe.some!(term.type), defs, ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
-          check(term.type, Maybe.some!(Kind.Term.typ), defs, ctx, Kind.MPath.i(path), Maybe.none!, offset, result);
-          return {term.type, result}; // TODO: append ann here.
+          var res1 = check(term.term, Maybe.some!(term.type), defs, ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
+          var res2 = check(term.type, Maybe.some!(Kind.Term.typ), defs, ctx, Kind.MPath.i(path), Maybe.none!, offset, Pair.snd!!(res1));
+          return {term.type, Pair.snd!!(res2)}; // TODO: append ann here.
         },
       let: do Kind.Check {
+        // let skip = Debug.log!(
+        //   String.pad_left(Bits.length(Kind.MPath.to_bits(path)), ' ', "")
+        //   | "let " | Lsp.HoverRef.term_name(term) | " orig=" | print_origin(orig) | " term=" | Kind.Term.show(term), (x) Unit.new);
+
         let ctx_size = List.length!(ctx);
         var expr_typ = check(term.expr, Maybe.none!, defs, ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
         let body_val = term.body(Kind.Term.var(term.name, ctx_size));
         let body_ctx = List.cons!({term.name, Pair.fst!!(expr_typ)}, ctx);
-        var body_typ = check(body_val, type, defs, body_ctx, Kind.MPath.i(path), Maybe.none!, offset, result);
+        var body_typ = check(body_val, type, defs, body_ctx, Kind.MPath.i(path), Maybe.none!, offset, Pair.snd!!(expr_typ));
         return {
           Pair.fst!!(body_typ),
-          List.concat!(List.concat!(result, Pair.snd!!(body_typ)), Pair.snd!!(expr_typ))
+          Pair.snd!!(body_typ)
         };
       },
       def: do Kind.Check {
@@ -191,10 +234,10 @@ check(
         var expr_typ = check(term.expr, Maybe.none!, defs, ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
         let body_val = term.body(Kind.Term.ann(Bool.true, term.expr, Pair.fst!!(expr_typ)));
         let body_ctx = List.cons!({term.name, Pair.fst!!(expr_typ)}, ctx);
-        var body_typ = check(body_val, type, defs, body_ctx, Kind.MPath.i(path), Maybe.none!, offset, result);
+        var body_typ = check(body_val, type, defs, body_ctx, Kind.MPath.i(path), Maybe.none!, offset, Pair.snd!!(expr_typ));
         return {
           Pair.fst!!(body_typ),
-          List.concat!(List.concat!(result, Pair.snd!!(body_typ)), Pair.snd!!(expr_typ))
+          Pair.snd!!(body_typ)
         };
       },
       nat: do Kind.Check {
@@ -275,8 +318,8 @@ Lsp.on_hover(
 
   List.flatten!(List.map!!((x) Lsp.hover_info(x, defs, offset), ds))
 
-// print_origin(orig: Maybe(Pair(Nat,Nat))): String
-//   case orig {
-//     none: "none",
-//     some: open orig.value; Nat.show(orig.value.fst) | "-" | Nat.show(orig.value.snd)
-//   }
+print_origin(orig: Maybe(Pair(Nat,Nat))): String
+  case orig {
+    none: "none",
+    some: open orig.value; Nat.show(orig.value.fst) | "-" | Nat.show(orig.value.snd)
+  }
