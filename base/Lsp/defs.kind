@@ -2,5 +2,5 @@
 Lsp.defs(defs: Kind.Defs, uri: String): List(Kind.Def)
   List.filter!(
     (d) open d; String.eql(d.file, uri),
-    Map.values!(defs)
+    BitsMap.values!(defs)
   )

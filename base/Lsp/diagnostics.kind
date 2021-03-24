@@ -73,7 +73,7 @@ Lsp.diagnostics(
   // TODO: Return a Map(uri, Diagnostics[]) that contains a key for every uri
   // we know about - it's important that we send back empty diagnostics for
   // files that have no errors to display.
-  let names = List.mapped<_>(Map.keys<_>(defs))<_>(Kind.Name.from_bits);
+  let names = List.mapped<_>(BitsMap.keys<_>(defs))<_>(Kind.Name.from_bits);
 
   // Collect any errors from typechecking.
   open Lsp.diagnostics.make_report(defs, names) as report
