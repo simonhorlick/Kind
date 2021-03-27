@@ -7,7 +7,7 @@ Lsp.on_change(
   defs: Kind.Defs
 ): Pair(Kind.Defs, List(Lsp.Diagnostic))
   // Parse the changes in this file.
-  let parsed = Kind.Parser.file(uri, content, BitsMap.new!, 0, content)
+  let parsed = Kind.Parser.file(uri, content, Kind.Map.new!, 0, content)
 
   case parsed {
     error:
@@ -72,12 +72,12 @@ Lsp.mark_as_init(names: List(Kind.Name), defs: Kind.Defs): Kind.Defs
     nil : defs,
     cons:
       // Look up the name.
-      case Kind.get<Kind.Def>(names.head, defs) as got {
+      case Kind.Map.get<Kind.Def>(names.head, defs) as got {
         none: Lsp.mark_as_init(names.tail, defs),
         some:
           open got.value as d
           // Set the status to `init`.
-          let defs = Kind.set!(
+          let defs = Kind.Map.set!(
             d.name,
             Kind.Def.new(
               d.file,

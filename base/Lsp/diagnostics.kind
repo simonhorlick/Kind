@@ -12,7 +12,7 @@ Lsp.diagnostics.make_report.go(
       let name = names.head;
 
       // Get the top-level definition `name` from `defs`.
-      case Kind.get<_>(name, defs) as got {
+      case Kind.Map.get<_>(name, defs) as got {
         none: Lsp.diagnostics.make_report.go(defs, names.tail, errs, typs),
         some: case got.value {
           new:

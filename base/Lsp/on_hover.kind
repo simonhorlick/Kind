@@ -79,7 +79,7 @@ check(
 ): Kind.Check(Pair(Kind.Term, List(Lsp.HoverRef)))
   do Kind.Check {
     case term {
-      ref: case Kind.get!(term.name, defs) as got {
+      ref: case Kind.Map.get!(term.name, defs) as got {
         none: Kind.Check.result!(
           maybe_with_result(type, result),
           [Kind.Error.undefined_reference(orig, term.name)]),
