@@ -17,10 +17,6 @@ Lsp.refs.go(term: Kind.Term, start: Nat, end: Nat)
       Lsp.Ref.new(Pair.new!!(start, end), Kind.Name.show(term.name))
     ]
 
-    var: []
-
-    typ: []
-
     all:
       let type = Lsp.refs.go(term.xtyp, 0, 0)
       let body = Lsp.refs.go(
@@ -56,26 +52,21 @@ Lsp.refs.go(term: Kind.Term, start: Nat, end: Nat)
       let type = Lsp.refs.go(term.type, 0, 0)
       List.concat!(term, type)
 
-    gol: []
-
-    hol: []
-
-    nat: []
-
-    chr: []
-
-    str: []
-
     cse:
       let wyth = List.flatten!(List.mapped!(term.with)!((defn)
         case defn {
           new:
-            let type = Lsp.refs.go(defn.type, 0, 0)
             let term = Lsp.refs.go(defn.term, 0, 0)
-            List.concat!(term, type)
+            case defn.type {
+              none: term,
+              some:
+                open defn.type;
+                let type = Lsp.refs.go(defn.type.value, 0, 0)
+                List.concat!(term, type)
+            }
         }))
 
-      let cses = Map.to_list!(term.cses);
+      let cses = BitsMap.to_list!(term.cses);
       let cses = List.flatten!(List.mapped!(cses)!(
         (x)
           Lsp.refs.go(Pair.snd!!(x), 0, 0)
@@ -95,7 +86,7 @@ Lsp.refs.go(term: Kind.Term, start: Nat, end: Nat)
         Pair.fst!!(term.orig),
         Pair.snd!!(term.orig))
 
-  }
+  } default []
 
 // refs lists all of the names that the given Def references along with the
 // source location of the name.

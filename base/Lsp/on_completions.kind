@@ -24,7 +24,7 @@ Lsp.on_completions(
   // TODO: Take the context into account, rather than just returning all
   // possible names.
   // TODO: Include local variables from let expressions, case, etc.
-  let names = List.map!!(Kind.Name.from_bits, Map.keys!(defs))
+  let names = List.map!!(Kind.Name.from_bits, BitsMap.keys!(defs))
 
   List.map!!(
     (x) Lsp.Completion.new(x, CompletionItemKind.Function, x),

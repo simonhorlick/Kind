@@ -28,239 +28,239 @@ Lsp.HoverRef.show(r: Lsp.HoverRef): String
     str: "Str"
     cse: r.term.name
     ori: "Ori"
-  }
+  } default "Unknown"
 
-// hover_info...
-Lsp.hover_info(d: Kind.Def, defs: Kind.Defs, offset: Nat): List(Lsp.HoverRef)
-  open d
-  let checked = do Kind.Check {
-    var res1 = check(d.type, Maybe.some!(Kind.Term.typ), defs, [], Kind.MPath.i(Kind.MPath.nil), Maybe.none!, offset, []);
-    var res2 = check(d.term, Maybe.some!(d.type), defs, [], Kind.MPath.o(Kind.MPath.nil), Maybe.none!, offset, []);
-    let result = List.concat!(Pair.snd!!(res1), Pair.snd!!(res2))
-    return {Pair.fst!!(res1), result};
-  }
-  open checked
-  case checked.value {
-    none: []
-    some: Pair.snd!!(checked.value.value)
-  }
+// // hover_info...
+// Lsp.hover_info(d: Kind.Def, defs: Kind.Defs, offset: Nat): List(Lsp.HoverRef)
+//   open d
+//   let checked = do Kind.Check {
+//     var res1 = check(d.type, Maybe.some!(Kind.Term.typ), defs, [], Kind.MPath.i(Kind.MPath.nil), Maybe.none!, offset, []);
+//     var res2 = check(d.term, Maybe.some!(d.type), defs, [], Kind.MPath.o(Kind.MPath.nil), Maybe.none!, offset, []);
+//     let result = List.concat!(Pair.snd!!(res1), Pair.snd!!(res2))
+//     return {Pair.fst!!(res1), result};
+//   }
+//   open checked
+//   case checked.value {
+//     none: []
+//     some: Pair.snd!!(checked.value.value)
+//   }
 
-// check runs the typechecker and collects information about terms to present
-// to the user.
-check(
-  term: Kind.Term,
-  type: Maybe(Kind.Term),
-  defs: Kind.Defs,
-  ctx: Kind.Context,
-  path: Kind.MPath,
-  orig: Maybe(Pair(Nat,Nat)),
-  offset: Nat,
-  result: List(Lsp.HoverRef)
-): Kind.Check(Pair(Kind.Term, List(Lsp.HoverRef)))
-  do Kind.Check {
-    case term {
-      ref: case Kind.get!(term.name, defs) as got {
-        none: Kind.Check.result!(
-          maybe_with_result(type, result),
-          [Kind.Error.undefined_reference(orig, term.name)]),
-        some: case got.value {
-          new:
-            let ref_name = got.value.name;
-            let ref_type = got.value.type;
-            let ref_term = got.value.term; // the body of the referenced function
-            let ref_stat = got.value.stat;
-            let hover = List.append!(
-              result,
-              Lsp.HoverRef.new(orig, term, Maybe.some!(ref_type)));
-            case ref_stat {
-              init: Kind.Check.result!(Maybe.some!({ref_type, hover}), [Kind.Error.waiting(ref_name)]),
-              wait: Kind.Check.result!(Maybe.some!({ref_type, hover}), []),
-              done: Kind.Check.result!(Maybe.some!({ref_type, hover}), []),
-              fail: Kind.Check.result!(Maybe.some!({ref_type, hover}), [Kind.Error.indirect(ref_name)]),
-            },
-        }
-      },
-      var: case List.at_last!(term.indx, ctx) as got {
-        none: Kind.Check.result!(
-          maybe_with_result(type, result),
-          [Kind.Error.undefined_reference(orig, term.name)]),
-        some: do Kind.Check {
-          return case got.value {
-            new: {
-              got.value.snd,
-              List.append!(result, Lsp.HoverRef.new(orig, term, Maybe.some!(got.value.snd)))
-            }
-          };
-        },
-      },
-      typ: do Kind.Check {
-        return {
-          Kind.Term.typ,
-          List.append!(result, Lsp.HoverRef.new(orig, term, Maybe.some!(Kind.Term.typ)))
-        };
-      },
-      all: do Kind.Check {
-        let ctx_size = List.length!(ctx);
-        let self_var = Kind.Term.var(term.self, ctx_size);
-        let body_var = Kind.Term.var(term.name, Nat.succ(ctx_size));
-        let body_ctx = List.cons!({term.name,term.xtyp}, List.cons!({term.self,term}, ctx));
-        var res1 = check(term.xtyp, Maybe.some!(Kind.Term.typ), defs, ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
-        var res2 = check(term.body(self_var,body_var), Maybe.some!(Kind.Term.typ), defs, body_ctx, Kind.MPath.i(path), Maybe.none!, offset, result);
-        return {
-          Kind.Term.typ,
-          List.concat!(Pair.snd!!(res1), Pair.snd!!(res2))
-        };
-      },
-      lam: case type {
-        none: do Kind.Check {
-          let lam_type = Kind.Term.hol(Bits.e);
-          let lam_term = Kind.Term.ann(Bool.false, term, lam_type);
-          Kind.Check.result!(
-            maybe_with_result(type, result),
-            [Kind.Error.patch(Kind.MPath.to_bits(path),lam_term)])
-        },
-        some: do Kind.Check {
-          let typv = Kind.Term.reduce(type.value, defs);
-          case typv {
-            all: do Kind.Check {
-              let ctx_size = List.length!(ctx);
-              let self_var = term;
-              let body_var = Kind.Term.var(term.name, ctx_size);
-              let body_typ = typv.body(self_var, body_var);
-              let body_ctx = List.cons!({term.name,typv.xtyp}, ctx);
-              var res1 = check(term.body(body_var), Maybe.some!(body_typ), defs, body_ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
-              return {type.value, List.concat!(result, Pair.snd!!(res1))};
-            },
-            //hol: do Kind.Check {
-              //let lam_type = Kind.Term.all(Bool.false, "", "", Kind.Term.hol(Bits.e), (s,x) Kind.Term.hol(Bits.e));
-              //let lam_term = Kind.Term.ann(Bool.false, term, lam_type);
-              //Kind.Check.result!(type, [Kind.Error.patch(Kind.MPath.to_bits(path),lam_term)]);
-            //},
-            _: do Kind.Check {
-              let expected = Either.left!!("(function type)");
-              let detected = Either.right!!(type.value);
-              Kind.Check.result!(
-                maybe_with_result(type, result),
-                [Kind.Error.type_mismatch(orig, expected, detected, ctx)])
-            }
-          };
-        }
-      },
-      app: do Kind.Check {
-        var func_typ1 = check(term.func, Maybe.none!, defs, ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
-        let func_typ = Kind.Term.reduce(Pair.fst!!(func_typ1), defs);
-        case func_typ {
-          all: do Kind.Check {
-            var res1 = check(term.argm, Maybe.some!(func_typ.xtyp), defs, ctx, Kind.MPath.i(path), Maybe.none!, offset, result);
-            let body_typ = func_typ.body(term.func, term.argm);
-            return {
-              body_typ,
-              List.append!(List.concat!(List.concat!(result, Pair.snd!!(res1)), Pair.snd!!(func_typ1)),
-              Lsp.HoverRef.new(orig, term, Maybe.some!(Pair.fst!!(res1))))}
-          },
-          _: do Kind.Check {
-            let expected = Either.left!!("(function type)");
-            let detected = Either.right!!(func_typ);
-            Kind.Check.result!(
-              maybe_with_result(type, result),
-              [Kind.Error.type_mismatch(orig, expected, detected, ctx)])
-          },
-        };
-      },
-      ann:
-        if term.done then do Kind.Check {
-          return {term.type, result}; // TODO: append ann here.
-        } else do Kind.Check {
-          check(term.term, Maybe.some!(term.type), defs, ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
-          check(term.type, Maybe.some!(Kind.Term.typ), defs, ctx, Kind.MPath.i(path), Maybe.none!, offset, result);
-          return {term.type, result}; // TODO: append ann here.
-        },
-      let: do Kind.Check {
-        let ctx_size = List.length!(ctx);
-        var expr_typ = check(term.expr, Maybe.none!, defs, ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
-        let body_val = term.body(Kind.Term.var(term.name, ctx_size));
-        let body_ctx = List.cons!({term.name, Pair.fst!!(expr_typ)}, ctx);
-        var body_typ = check(body_val, type, defs, body_ctx, Kind.MPath.i(path), Maybe.none!, offset, result);
-        return {
-          Pair.fst!!(body_typ),
-          List.concat!(List.concat!(result, Pair.snd!!(body_typ)), Pair.snd!!(expr_typ))
-        };
-      },
-      def: do Kind.Check {
-        let ctx_size = List.length!(ctx);
-        var expr_typ = check(term.expr, Maybe.none!, defs, ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
-        let body_val = term.body(Kind.Term.ann(Bool.true, term.expr, Pair.fst!!(expr_typ)));
-        let body_ctx = List.cons!({term.name, Pair.fst!!(expr_typ)}, ctx);
-        var body_typ = check(body_val, type, defs, body_ctx, Kind.MPath.i(path), Maybe.none!, offset, result);
-        return {
-          Pair.fst!!(body_typ),
-          List.concat!(List.concat!(result, Pair.snd!!(body_typ)), Pair.snd!!(expr_typ))
-        };
-      },
-      nat: do Kind.Check {
-        return {
-          Kind.Term.ref("Nat"),
-          List.append!(result, Lsp.HoverRef.new(orig, term, Maybe.some!(Kind.Term.ref("Nat"))))
-        };
-      },
-      chr: do Kind.Check {
-        return {
-          Kind.Term.ref("Char"),
-          List.append!(result, Lsp.HoverRef.new(orig, term, Maybe.some!(Kind.Term.ref("Char"))))
-        };
-      },
-      str: do Kind.Check {
-        return {
-          Kind.Term.ref("String"),
-          List.append!(result, Lsp.HoverRef.new(orig, term, Maybe.some!(Kind.Term.ref("String"))))
-        };
-      },
-      cse: do Kind.Check {
-        let expr = term.expr;
-        var etyp = check(expr, Maybe.none!, defs, ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
-        // If cse has no moti and we have an inferred type, then we guess it
-        // with the information we have, substituting selfs and indices.
-        // Otherwise, we just replace it by a normal hole.
-        let dsug = case term.moti {
-          none:
-            let moti = case type {
-              none:
-                Kind.Term.hol(Bits.e),
-              some:
-                let size = List.length!(ctx);
-                let typv = Kind.Term.normalize(type.value, Map.new!);
-                let moti = Kind.SmartMotive.make(term.name, term.expr, Pair.fst!!(etyp), typv, size, defs);
-                moti,
-            };
-            Maybe.some!(Kind.Term.cse(term.path, term.expr, term.name, term.with, term.cses, Maybe.some!(moti))),
-          some:
-            Kind.Term.desugar_cse(term.expr, term.name, term.with, term.cses, term.moti.value, Pair.fst!!(etyp), defs, ctx),
-        };
-        case dsug {
-          none: Kind.Check.result!(maybe_with_result(type,result), [Kind.Error.cant_infer(orig, term, ctx)]),
-          some: Kind.Check.result!(maybe_with_result(type,result), [Kind.Error.patch(Kind.MPath.to_bits(path),dsug.value)]),
-        };
-      },
-      gol: do Kind.Check {
-        Kind.Check.result!(maybe_with_result(type, result), [
-          Kind.Error.show_goal(orig, term.name, term.dref, term.verb, type, ctx)
-        ]);
-      },
-      hol: do Kind.Check {
-        Kind.Check.result!(maybe_with_result(type, result), [])
-      },
-      ori: do Kind.Check{
-        check(term.expr, type, defs, ctx, path, Maybe.some!(term.orig), offset, result);
-      }
-    };
-  }
+// // check runs the typechecker and collects information about terms to present
+// // to the user.
+// check(
+//   term: Kind.Term,
+//   type: Maybe(Kind.Term),
+//   defs: Kind.Defs,
+//   ctx: Kind.Context,
+//   path: Kind.MPath,
+//   orig: Maybe(Pair(Nat,Nat)),
+//   offset: Nat,
+//   result: List(Lsp.HoverRef)
+// ): Kind.Check(Pair(Kind.Term, List(Lsp.HoverRef)))
+//   do Kind.Check {
+//     case term {
+//       ref: case Kind.get!(term.name, defs) as got {
+//         none: Kind.Check.result!(
+//           maybe_with_result(type, result),
+//           [Kind.Error.undefined_reference(orig, term.name)]),
+//         some: case got.value {
+//           new:
+//             let ref_name = got.value.name;
+//             let ref_type = got.value.type;
+//             let ref_term = got.value.term; // the body of the referenced function
+//             let ref_stat = got.value.stat;
+//             let hover = List.append!(
+//               result,
+//               Lsp.HoverRef.new(orig, term, Maybe.some!(ref_type)));
+//             case ref_stat {
+//               init: Kind.Check.result!(Maybe.some!({ref_type, hover}), [Kind.Error.waiting(ref_name)]),
+//               wait: Kind.Check.result!(Maybe.some!({ref_type, hover}), []),
+//               done: Kind.Check.result!(Maybe.some!({ref_type, hover}), []),
+//               fail: Kind.Check.result!(Maybe.some!({ref_type, hover}), [Kind.Error.indirect(ref_name)]),
+//             },
+//         }
+//       },
+//       var: case List.at_last!(term.indx, ctx) as got {
+//         none: Kind.Check.result!(
+//           maybe_with_result(type, result),
+//           [Kind.Error.undefined_reference(orig, term.name)]),
+//         some: do Kind.Check {
+//           return case got.value {
+//             new: {
+//               got.value.snd,
+//               List.append!(result, Lsp.HoverRef.new(orig, term, Maybe.some!(got.value.snd)))
+//             }
+//           };
+//         },
+//       },
+//       typ: do Kind.Check {
+//         return {
+//           Kind.Term.typ,
+//           List.append!(result, Lsp.HoverRef.new(orig, term, Maybe.some!(Kind.Term.typ)))
+//         };
+//       },
+//       all: do Kind.Check {
+//         let ctx_size = List.length!(ctx);
+//         let self_var = Kind.Term.var(term.self, ctx_size);
+//         let body_var = Kind.Term.var(term.name, Nat.succ(ctx_size));
+//         let body_ctx = List.cons!({term.name,term.xtyp}, List.cons!({term.self,term}, ctx));
+//         var res1 = check(term.xtyp, Maybe.some!(Kind.Term.typ), defs, ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
+//         var res2 = check(term.body(self_var,body_var), Maybe.some!(Kind.Term.typ), defs, body_ctx, Kind.MPath.i(path), Maybe.none!, offset, result);
+//         return {
+//           Kind.Term.typ,
+//           List.concat!(Pair.snd!!(res1), Pair.snd!!(res2))
+//         };
+//       },
+//       lam: case type {
+//         none: do Kind.Check {
+//           let lam_type = Kind.Term.hol(Bits.e);
+//           let lam_term = Kind.Term.ann(Bool.false, term, lam_type);
+//           Kind.Check.result!(
+//             maybe_with_result(type, result),
+//             [Kind.Error.patch(Kind.MPath.to_bits(path),lam_term)])
+//         },
+//         some: do Kind.Check {
+//           let typv = Kind.Term.reduce(type.value, defs);
+//           case typv {
+//             all: do Kind.Check {
+//               let ctx_size = List.length!(ctx);
+//               let self_var = term;
+//               let body_var = Kind.Term.var(term.name, ctx_size);
+//               let body_typ = typv.body(self_var, body_var);
+//               let body_ctx = List.cons!({term.name,typv.xtyp}, ctx);
+//               var res1 = check(term.body(body_var), Maybe.some!(body_typ), defs, body_ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
+//               return {type.value, List.concat!(result, Pair.snd!!(res1))};
+//             },
+//             //hol: do Kind.Check {
+//               //let lam_type = Kind.Term.all(Bool.false, "", "", Kind.Term.hol(Bits.e), (s,x) Kind.Term.hol(Bits.e));
+//               //let lam_term = Kind.Term.ann(Bool.false, term, lam_type);
+//               //Kind.Check.result!(type, [Kind.Error.patch(Kind.MPath.to_bits(path),lam_term)]);
+//             //},
+//             _: do Kind.Check {
+//               let expected = Either.left!!("(function type)");
+//               let detected = Either.right!!(type.value);
+//               Kind.Check.result!(
+//                 maybe_with_result(type, result),
+//                 [Kind.Error.type_mismatch(orig, expected, detected, ctx)])
+//             }
+//           };
+//         }
+//       },
+//       app: do Kind.Check {
+//         var func_typ1 = check(term.func, Maybe.none!, defs, ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
+//         let func_typ = Kind.Term.reduce(Pair.fst!!(func_typ1), defs);
+//         case func_typ {
+//           all: do Kind.Check {
+//             var res1 = check(term.argm, Maybe.some!(func_typ.xtyp), defs, ctx, Kind.MPath.i(path), Maybe.none!, offset, result);
+//             let body_typ = func_typ.body(term.func, term.argm);
+//             return {
+//               body_typ,
+//               List.append!(List.concat!(List.concat!(result, Pair.snd!!(res1)), Pair.snd!!(func_typ1)),
+//               Lsp.HoverRef.new(orig, term, Maybe.some!(Pair.fst!!(res1))))}
+//           },
+//           _: do Kind.Check {
+//             let expected = Either.left!!("(function type)");
+//             let detected = Either.right!!(func_typ);
+//             Kind.Check.result!(
+//               maybe_with_result(type, result),
+//               [Kind.Error.type_mismatch(orig, expected, detected, ctx)])
+//           },
+//         };
+//       },
+//       ann:
+//         if term.done then do Kind.Check {
+//           return {term.type, result}; // TODO: append ann here.
+//         } else do Kind.Check {
+//           check(term.term, Maybe.some!(term.type), defs, ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
+//           check(term.type, Maybe.some!(Kind.Term.typ), defs, ctx, Kind.MPath.i(path), Maybe.none!, offset, result);
+//           return {term.type, result}; // TODO: append ann here.
+//         },
+//       let: do Kind.Check {
+//         let ctx_size = List.length!(ctx);
+//         var expr_typ = check(term.expr, Maybe.none!, defs, ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
+//         let body_val = term.body(Kind.Term.var(term.name, ctx_size));
+//         let body_ctx = List.cons!({term.name, Pair.fst!!(expr_typ)}, ctx);
+//         var body_typ = check(body_val, type, defs, body_ctx, Kind.MPath.i(path), Maybe.none!, offset, result);
+//         return {
+//           Pair.fst!!(body_typ),
+//           List.concat!(List.concat!(result, Pair.snd!!(body_typ)), Pair.snd!!(expr_typ))
+//         };
+//       },
+//       def: do Kind.Check {
+//         let ctx_size = List.length!(ctx);
+//         var expr_typ = check(term.expr, Maybe.none!, defs, ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
+//         let body_val = term.body(Kind.Term.ann(Bool.true, term.expr, Pair.fst!!(expr_typ)));
+//         let body_ctx = List.cons!({term.name, Pair.fst!!(expr_typ)}, ctx);
+//         var body_typ = check(body_val, type, defs, body_ctx, Kind.MPath.i(path), Maybe.none!, offset, result);
+//         return {
+//           Pair.fst!!(body_typ),
+//           List.concat!(List.concat!(result, Pair.snd!!(body_typ)), Pair.snd!!(expr_typ))
+//         };
+//       },
+//       nat: do Kind.Check {
+//         return {
+//           Kind.Term.ref("Nat"),
+//           List.append!(result, Lsp.HoverRef.new(orig, term, Maybe.some!(Kind.Term.ref("Nat"))))
+//         };
+//       },
+//       chr: do Kind.Check {
+//         return {
+//           Kind.Term.ref("Char"),
+//           List.append!(result, Lsp.HoverRef.new(orig, term, Maybe.some!(Kind.Term.ref("Char"))))
+//         };
+//       },
+//       str: do Kind.Check {
+//         return {
+//           Kind.Term.ref("String"),
+//           List.append!(result, Lsp.HoverRef.new(orig, term, Maybe.some!(Kind.Term.ref("String"))))
+//         };
+//       },
+//       cse: do Kind.Check {
+//         let expr = term.expr;
+//         var etyp = check(expr, Maybe.none!, defs, ctx, Kind.MPath.o(path), Maybe.none!, offset, result);
+//         // If cse has no moti and we have an inferred type, then we guess it
+//         // with the information we have, substituting selfs and indices.
+//         // Otherwise, we just replace it by a normal hole.
+//         let dsug = case term.moti {
+//           none:
+//             let moti = case type {
+//               none:
+//                 Kind.Term.hol(Bits.e),
+//               some:
+//                 let size = List.length!(ctx);
+//                 let typv = Kind.Term.normalize(type.value, Map.new!);
+//                 let moti = Kind.SmartMotive.make(term.name, term.expr, Pair.fst!!(etyp), typv, size, defs);
+//                 moti,
+//             };
+//             Maybe.some!(Kind.Term.cse(term.path, term.expr, term.name, term.with, term.cses, Maybe.some!(moti))),
+//           some:
+//             Kind.Term.desugar_cse(term.expr, term.name, term.with, term.cses, term.moti.value, Pair.fst!!(etyp), defs, ctx),
+//         };
+//         case dsug {
+//           none: Kind.Check.result!(maybe_with_result(type,result), [Kind.Error.cant_infer(orig, term, ctx)]),
+//           some: Kind.Check.result!(maybe_with_result(type,result), [Kind.Error.patch(Kind.MPath.to_bits(path),dsug.value)]),
+//         };
+//       },
+//       gol: do Kind.Check {
+//         Kind.Check.result!(maybe_with_result(type, result), [
+//           Kind.Error.show_goal(orig, term.name, term.dref, term.verb, type, ctx)
+//         ]);
+//       },
+//       hol: do Kind.Check {
+//         Kind.Check.result!(maybe_with_result(type, result), [])
+//       },
+//       ori: do Kind.Check{
+//         check(term.expr, type, defs, ctx, path, Maybe.some!(term.orig), offset, result);
+//       }
+//     };
+//   }
 
-maybe_with_result(type: Maybe(Kind.Term), result: List(Lsp.HoverRef))
-  : Maybe(Pair(Kind.Term, List(Lsp.HoverRef)))
-  case type {
-    none: Maybe.none!
-    some: Maybe.some!({type.value, result})
-  }
+// maybe_with_result(type: Maybe(Kind.Term), result: List(Lsp.HoverRef))
+//   : Maybe(Pair(Kind.Term, List(Lsp.HoverRef)))
+//   case type {
+//     none: Maybe.none!
+//     some: Maybe.some!({type.value, result})
+//   }
 
 // on_hover looks up what appears in the source file `uri` at the given
 // `offset` and returns information about the term.
@@ -269,11 +269,12 @@ Lsp.on_hover(
   offset: Nat,
   defs: Kind.Defs
 ): List(Lsp.HoverRef)
-  let ds = Lsp.defs(defs, uri)
+  //let ds = Lsp.defs(defs, uri)
 
   // TODO: Only check if this def overlaps the region of interest.
 
-  List.flatten!(List.map!!((x) Lsp.hover_info(x, defs, offset), ds))
+  //List.flatten!(List.map!!((x) Lsp.hover_info(x, defs, offset), ds))
+  []
 
 // print_origin(orig: Maybe(Pair(Nat,Nat))): String
 //   case orig {
