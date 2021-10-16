@@ -12,7 +12,7 @@ Lsp.diagnostics.make_report.go(
       let name = names.head;
 
       // Get the top-level definition `name` from `defs`.
-      case Kind.get<_>(name, defs) as got {
+      case BitsMap.get<_>(Kind.Name.to_bits(name), defs) as got {
         none: Lsp.diagnostics.make_report.go(defs, names.tail, errs, typs),
         some: case got.value {
           new:
@@ -29,8 +29,7 @@ Lsp.diagnostics.make_report.go(
               fail: case got.value.stat.errors {
                 nil: Lsp.diagnostics.make_report.go(defs, names.tail, errs, typs),
                 cons:
-                  let rel_errs = Kind.Error.relevant(got.value.stat.errors,
-                    Bool.false);
+                  let rel_errs = Kind.Error.relevant(got.value.stat.errors);
                   case rel_errs {
                     nil:
                       Lsp.diagnostics.make_report.go(defs, names.tail, errs, typs),
@@ -73,7 +72,7 @@ Lsp.diagnostics(
   // TODO: Return a Map(uri, Diagnostics[]) that contains a key for every uri
   // we know about - it's important that we send back empty diagnostics for
   // files that have no errors to display.
-  let names = List.mapped<_>(Map.keys<_>(defs))<_>(Kind.Name.from_bits);
+  let names = List.mapped<_>(BitsMap.keys<_>(defs))<_>(Kind.Name.from_bits);
 
   // Collect any errors from typechecking.
   open Lsp.diagnostics.make_report(defs, names) as report
