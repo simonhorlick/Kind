@@ -25,5 +25,5 @@ Lsp.definition(
       // Take the first match.
       open matches.head as ref
       
-      Kind.get!(Kind.Name.read(ref.name), defs)
+      BitsMap.get!(Kind.Name.to_bits(ref.name), defs)
   }
